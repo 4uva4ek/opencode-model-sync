@@ -1,0 +1,23 @@
+[project]
+name = "opencode-model-sync"
+version = "0.1.0"
+description = "Desktop app that adds models from local and self-hosted servers to the opencode config"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyside6-essentials>=6.8",
+]
+
+[project.gui-scripts]
+opencode-model-sync = "opencode_model_sync:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pillow>=12.3.0",
+    "pyinstaller>=6.22.3",
+    "pytest>=9.1.1",
+]
