@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
-from .config import OpencodeConfig, Provider
+from .config import OpencodeConfig, Provider, configured_tools
 
 # Embedding, speech, image and moderation models share the listing but cannot drive a chat session.
 NON_CHAT = re.compile(r"embed|whisper|tts|dall-e|moderation|transcribe|rerank|(^|[-/])image", re.IGNORECASE)
@@ -50,6 +50,18 @@ class ModelRow:
     name: str
     status: str  # "configured", "new" or "missing"
     remote: RemoteModel | None = None
+    configured_tools: bool | None = None
+
+    @property
+    def in_config(self) -> bool:
+        return self.status != "new"
+
+    @property
+    def tools(self) -> bool | None:
+        """The config's choice wins over what the server reports."""
+        if self.configured_tools is not None:
+            return self.configured_tools
+        return self.remote.tools if self.remote else None
 
 
 @dataclass
@@ -84,6 +96,7 @@ def diff(provider: Provider, discovery: Discovery) -> list[ModelRow]:
             name=str(entry.get("name") or model_id),
             status="configured" if model_id in remote or not discovery.ok else "missing",
             remote=remote.get(model_id),
+            configured_tools=configured_tools(entry),
         )
         for model_id, entry in provider.models.items()
     ]

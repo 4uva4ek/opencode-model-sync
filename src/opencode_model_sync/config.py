@@ -19,6 +19,8 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
 
+from .i18n import tr
+
 CONFIG_NAMES = ("opencode.json", "opencode.jsonc")
 LEGACY = "provider"
 CURRENT = "providers"
@@ -77,7 +79,7 @@ class OpencodeConfig:
         try:
             return cls(path, _as_object(json.loads(strip_jsonc(text))), has_comments=True)
         except json.JSONDecodeError as error:
-            raise ConfigError(f"{path} is not valid JSON: {error}") from error
+            raise ConfigError(tr("error.invalidJson", file=path, error=error)) from error
 
     def providers(self) -> list[Provider]:
         current = _as_object(self.data.get(CURRENT, {}))
@@ -104,11 +106,21 @@ class OpencodeConfig:
         for model_id in model_ids:
             models.pop(model_id, None)
 
+    def set_model_tools(self, provider_id: str, model_id: str, tools: bool) -> None:
+        """Turn tool calling on or off for a model already in the config."""
+        entry = self._entry(provider_id).get("models", {}).get(model_id)
+        if entry is None:
+            raise ConfigError(tr("error.missing", id=f"{provider_id}/{model_id}"))
+        if self._section(provider_id) == LEGACY:
+            entry["tool_call"] = tools
+        else:
+            entry.setdefault("capabilities", {})["tools"] = tools
+
     def add_provider(self, provider_id: str, name: str, base_url: str, api_key: str | None) -> None:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", provider_id):
-            raise ConfigError("Provider ID may contain only letters, digits, '.', '_' and '-'")
+            raise ConfigError(tr("error.badId"))
         if self.provider(provider_id):
-            raise ConfigError(f"Provider '{provider_id}' already exists")
+            raise ConfigError(tr("error.exists", id=provider_id))
         # The legacy shape is what opencode's own docs show for custom OpenAI-compatible providers.
         options: dict[str, Any] = {"baseURL": base_url.rstrip("/")}
         if api_key:
@@ -122,7 +134,7 @@ class OpencodeConfig:
 
     def save(self) -> None:
         if self.has_comments:
-            raise ConfigError(f"{self.path.name} has comments, which would be lost on save; edit it by hand instead")
+            raise ConfigError(tr("error.comments", file=self.path.name))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists() and not self._backed_up:
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -171,11 +183,19 @@ class OpencodeConfig:
     def _section(self, provider_id: str) -> str:
         provider = self.provider(provider_id)
         if not provider:
-            raise ConfigError(f"Provider '{provider_id}' is not in the config")
+            raise ConfigError(tr("error.missing", id=provider_id))
         return provider.section
 
     def _entry(self, provider_id: str) -> dict[str, Any]:
         return self.data[self._section(provider_id)][provider_id]
+
+
+def configured_tools(entry: dict[str, Any]) -> bool | None:
+    """Tool calling as written in a model entry of either section; None when the config does not say."""
+    if isinstance(entry.get("tool_call"), bool):
+        return entry["tool_call"]
+    tools = _as_object(entry.get("capabilities", {})).get("tools")
+    return tools if isinstance(tools, bool) else None
 
 
 def resolve_variables(value: str) -> str:

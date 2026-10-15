@@ -1,46 +1,57 @@
 # OpenCode Model Sync
 
-Настольное приложение для Linux, macOS (Apple Silicon) и Windows. Оно опрашивает ваши серверы моделей и добавляет найденные модели в конфиг [opencode](https://opencode.ai). Работает с обычным opencode, форк не нужен: opencode сам замечает изменение конфига.
+[Русская версия](README.ru.md)
 
-## Что умеет
+A small desktop app for Linux, macOS (Apple Silicon) and Windows. It asks your model servers which models they serve and adds them to the [opencode](https://opencode.ai) config. It works with the regular opencode release: opencode picks up config changes on its own.
 
-- Показывает провайдеров из `~/.config/opencode/opencode.json`, у которых указан свой адрес API, и проверяет, отвечают ли они.
-- Ollama, LM Studio, vLLM, llama.cpp и любые OpenAI-совместимые серверы, локальные или в сети.
-- Для Ollama и LM Studio берёт реальный размер контекста и поддержку инструментов. Модели эмбеддингов пропускает.
-- «Синхронизировать» добавляет новые модели. Модели, которых больше нет на сервере, удаляются только кнопкой «Удалить отмеченные».
-- Находит локальные серверы на стандартных портах, которых ещё нет в конфиге, и предлагает их добавить.
-- Конфиг меняется только по нажатию кнопки. Перед первой записью рядом сохраняется резервная копия `opencode.json.bak-model-sync-*`.
-- Сворачивается в трей. Тема светлая или тёмная, как в системе.
+## Features
 
-Модели записываются в тот раздел конфига, где описан провайдер: старый `provider` или новый `providers`. Если провайдер с тем же ID оказался бы в обоих разделах, opencode проигнорировал бы старое описание вместе с адресом сервера.
+- Lists the providers in `~/.config/opencode/opencode.json` that have their own API address, and checks whether each server responds.
+- Works with Ollama, LM Studio, vLLM, llama.cpp and any OpenAI-compatible server, local or on your network.
+- For Ollama and LM Studio it reads the real context size and tool-calling support. Embedding models are skipped.
+- **Sync** adds new models. **Remove from config** removes the models you select, for example ones that are gone from the server.
+- The tool-calling label of a model in the config is a switch. Turn it off for a model that says it supports tools but handles them poorly.
+- Finds local servers on their default ports that are not in the config yet and offers to add them.
+- The config only changes when you press a button. A backup `opencode.json.bak-model-sync-*` is written next to it before the first change.
+- Lives in the tray. Light or dark theme follows the system. Russian and English interface.
 
-Файлы `.jsonc` с комментариями приложение читает, но не перезаписывает, чтобы не потерять комментарии.
+Models go into the config section where the provider is defined, the legacy `provider` map or the newer `providers` map. If one ID ended up in both, opencode would ignore the legacy entry together with its server address.
 
-## Запуск из исходников
+`.jsonc` files with comments are read but never rewritten, so the comments are not lost.
 
-Нужен [uv](https://docs.astral.sh/uv/).
+## Download
+
+Builds for every platform are attached to the [latest release](../../releases/latest). The builds are not signed:
+
+- **macOS:** unzip, then right-click the app and choose **Open** the first time.
+- **Windows:** unzip and run `OpenCode Model Sync.exe`. SmartScreen may ask you to confirm.
+- **Linux:** unpack the archive and run `opencode-model-sync/OpenCode Model Sync`.
+
+## Run from source
+
+You need [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv run opencode-model-sync
 ```
 
-## Сборка
+## Build
 
-Каждая система собирает своё приложение:
+Each platform builds its own app:
 
 ```bash
 uv run python scripts/build.py
 ```
 
-Результат появится в `dist/`: `.app` на macOS, папка с `.exe` на Windows, папка с исполняемым файлом на Linux, плюс архив. На Linux установка в меню приложений:
+The result is in `dist/`: an `.app` on macOS, a folder with an `.exe` on Windows, a folder with an executable on Linux, plus an archive. To add it to the Linux application menu:
 
 ```bash
 sh scripts/install-linux.sh
 ```
 
-Сборки для всех трёх систем делает GitHub Actions: при публикации тега `v*` workflow `build` собирает их и прикладывает к релизу.
+GitHub Actions builds all three platforms. Pushing a `v*` tag runs the `build` workflow and attaches the builds to a release.
 
-## Тесты
+## Tests
 
 ```bash
 uv run pytest

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLocale, QSettings, Qt
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from . import icons, theme
+from . import i18n, icons, theme
+from .i18n import tr
 from .window import MainWindow
 
 APP_ID = "opencode-model-sync"
@@ -30,7 +31,7 @@ class TrayWindow(MainWindow):
         self.hide()
         if not self.hinted:
             self.hinted = True
-            self.tray.showMessage("Model Sync", "Приложение работает в трее.", icons.logo(), 3000)
+            self.tray.showMessage("Model Sync", tr("app.trayHint"), icons.logo(), 3000)
 
 
 def apply_theme(app: QApplication) -> None:
@@ -47,6 +48,8 @@ def main() -> int:
     app.setWindowIcon(icons.logo())
     app.setStyle("Fusion")
     apply_theme(app)
+    settings = QSettings(APP_ID, APP_ID)
+    i18n.set_language(str(settings.value("language", "")) or i18n.detect(QLocale.system().uiLanguages()))
 
     tray = QSystemTrayIcon(icons.logo()) if QSystemTrayIcon.isSystemTrayAvailable() else None
     window = TrayWindow(tray)
@@ -57,6 +60,7 @@ def main() -> int:
         window.render()
 
     app.styleHints().colorSchemeChanged.connect(restyle)
+    window.language_changed.connect(lambda: settings.setValue("language", i18n.language()))
 
     if tray:
         def show_window() -> None:
@@ -65,16 +69,23 @@ def main() -> int:
             window.activateWindow()
 
         menu = QMenu()
-        open_action = QAction("Открыть", menu)
+        open_action = QAction(tr("tray.open"), menu)
         open_action.triggered.connect(show_window)
-        sync_action = QAction("Синхронизировать всё", menu)
+        sync_action = QAction(tr("tray.syncAll"), menu)
         sync_action.triggered.connect(window.sync_all)
-        quit_action = QAction("Выход", menu)
+        quit_action = QAction(tr("tray.quit"), menu)
         quit_action.triggered.connect(app.quit)
         menu.addAction(open_action)
         menu.addAction(sync_action)
         menu.addSeparator()
         menu.addAction(quit_action)
+
+        def retranslate() -> None:
+            open_action.setText(tr("tray.open"))
+            sync_action.setText(tr("tray.syncAll"))
+            quit_action.setText(tr("tray.quit"))
+
+        window.language_changed.connect(retranslate)
         tray.setContextMenu(menu)
         tray.setToolTip("OpenCode Model Sync")
         tray.activated.connect(

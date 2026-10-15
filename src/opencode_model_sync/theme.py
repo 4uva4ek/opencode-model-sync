@@ -137,6 +137,8 @@ QCheckBox::indicator:checked {{ background: {p.accent}; border-color: {p.accent}
 QCheckBox::indicator:disabled {{ border-color: {p.border}; }}
 
 #pill {{ border-radius: 9px; padding: 2px 9px; font-size: 11px; font-weight: 600; }}
+QPushButton#pill {{ border: 1px solid transparent; }}
+QPushButton#pill:hover {{ border-color: {p.faint}; }}
 #pill[tone="accent"] {{ color: {p.accent}; background: {p.accent_soft}; }}
 #pill[tone="success"] {{ color: {p.success}; background: {p.success_soft}; }}
 #pill[tone="warning"] {{ color: {p.warning}; background: {p.warning_soft}; }}

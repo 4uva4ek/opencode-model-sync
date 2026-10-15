@@ -25,11 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import discovery, icons, tasks, theme
+from . import discovery, i18n, icons, tasks, theme
 from .config import ConfigError, OpencodeConfig, Provider, config_path
 from .discovery import Discovery, ModelRow, RemoteModel, Suggestion
-
-SERVER_NAMES = {"ollama": "Ollama", "lmstudio": "LM Studio", "openai": "OpenAI-совместимый"}
+from .i18n import tr
 
 
 def repolish(widget: QWidget) -> None:
@@ -108,12 +107,12 @@ class ProviderCard(QFrame):
         dot = label("●")
         dot.setStyleSheet(f"color: {color}; font-size: 10px;")
         dot.setToolTip(
-            "Проверяется…" if result is None else "Сервер отвечает" if result.ok else f"Нет ответа: {result.error}"
+            tr("card.checking") if result is None else tr("card.online") if result.ok else tr("card.offline", error=result.error)
         )
         name = ElidedLabel(provider.title, "providerName")
         url = ElidedLabel(host(provider.base_url), "providerUrl")
         count = label(str(len(provider.models)), "countBadge")
-        count.setToolTip("Моделей в конфиге opencode")
+        count.setToolTip(tr("card.count"))
         count.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         new = len([m for m in (result.models if result and result.ok else []) if m.id not in provider.models])
 
@@ -128,7 +127,7 @@ class ProviderCard(QFrame):
         layout.addLayout(text, 1)
         if new:
             badge = pill(f"+{new}", "accent")
-            badge.setToolTip("Новых моделей на сервере")
+            badge.setToolTip(tr("card.new"))
             layout.addWidget(badge)
         layout.addWidget(count)
 
@@ -157,9 +156,9 @@ class SuggestionCard(QFrame):
     def __init__(self, suggestion: Suggestion) -> None:
         super().__init__()
         self.setObjectName("suggestion")
-        text = label(f"<b>{suggestion.name}</b><br>{host(suggestion.base_url)} · моделей: {suggestion.count}")
+        text = label(f"<b>{suggestion.name}</b><br>{host(suggestion.base_url)} · {tr('suggestion.models', count=suggestion.count)}")
         text.setObjectName("suggestionText")
-        add = button("Добавить", "link")
+        add = button(tr("suggestion.add"), "link")
         add.clicked.connect(lambda: self.added.emit(suggestion))
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 9, 12, 9)
@@ -169,6 +168,7 @@ class SuggestionCard(QFrame):
 
 class ModelRowWidget(QFrame):
     toggled = Signal()
+    tools_toggled = Signal(str, bool)
 
     def __init__(self, row: ModelRow, checked: bool, last: bool) -> None:
         super().__init__()
@@ -176,11 +176,9 @@ class ModelRowWidget(QFrame):
         self.setObjectName("modelRow")
         self.setProperty("last", last)
         self.check = QCheckBox()
-        self.check.setEnabled(row.status != "configured")
-        self.check.setChecked(checked and row.status != "configured")
-        self.check.toggled.connect(self.toggled.emit)
-        if row.status == "configured":
-            self.check.setToolTip("Уже в конфиге")
+        self.check.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.check.setChecked(checked)
+        self.check.toggled.connect(lambda _checked: self.toggled.emit())
 
         names = QVBoxLayout()
         names.setSpacing(2)
@@ -196,14 +194,30 @@ class ModelRowWidget(QFrame):
         remote = row.remote
         if remote and remote.context:
             chip = pill(tokens(remote.context), "muted")
-            chip.setToolTip(f"Контекст: {remote.context:,} токенов".replace(",", " "))
+            chip.setToolTip(tr("row.context", count=f"{remote.context:,}".replace(",", " ")))
             layout.addWidget(chip)
-        if remote and remote.tools is not None:
-            layout.addWidget(pill("инструменты" if remote.tools else "без инструментов", "muted"))
+        if row.in_config:
+            # opencode treats a model without an explicit setting as able to call tools.
+            enabled = row.tools is not False
+            toggle = QPushButton(tr("row.tools") if enabled else tr("row.noTools"))
+            toggle.setObjectName("pill")
+            toggle.setProperty("tone", "muted" if enabled else "warning")
+            toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+            toggle.setToolTip(
+                tr("row.toolsHint") + "\n" + tr("row.toolsToggle")
+                if enabled
+                else tr("row.noToolsHint") + "\n" + tr("row.noToolsToggle")
+            )
+            toggle.clicked.connect(lambda: self.tools_toggled.emit(row.id, not enabled))
+            layout.addWidget(toggle)
+        elif row.tools is not None:
+            tools = pill(tr("row.tools") if row.tools else tr("row.noTools"), "muted" if row.tools else "warning")
+            tools.setToolTip(tr("row.toolsHint") if row.tools else tr("row.noToolsHint"))
+            layout.addWidget(tools)
         status = {
-            "new": ("Новая", "accent"),
-            "configured": ("В конфиге", "success"),
-            "missing": ("Нет на сервере", "warning"),
+            "new": (tr("status.new"), "accent"),
+            "configured": (tr("status.configured"), "success"),
+            "missing": (tr("status.missing"), "warning"),
         }[row.status]
         layout.addWidget(pill(*status))
 
@@ -213,34 +227,34 @@ class AddProviderDialog(QDialog):
 
     def __init__(self, parent: QWidget, existing: set[str], preset: Suggestion | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Новый провайдер")
+        self.setWindowTitle(tr("dialog.title"))
         self.setMinimumWidth(460)
         self.existing = existing
         self.result_models: list[RemoteModel] = []
         self.name = QLineEdit(preset.name if preset else "")
-        self.name.setPlaceholderText("Например, Ollama на Mac")
+        self.name.setPlaceholderText(tr("dialog.namePlaceholder"))
         self.ident = QLineEdit(preset.id if preset else "")
         self.ident.setPlaceholderText("ollama-mac")
         self.url = QLineEdit(preset.base_url if preset else "")
         self.url.setPlaceholderText("http://192.168.1.10:11434/v1")
         self.key = QLineEdit()
-        self.key.setPlaceholderText("Необязательно")
+        self.key.setPlaceholderText(tr("dialog.keyPlaceholder"))
         self.key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.add_models = QCheckBox("Сразу добавить найденные модели")
+        self.add_models = QCheckBox(tr("dialog.addModels"))
         self.add_models.setChecked(True)
         self.status = label("", "hint", wrap=True)
         self.name.textEdited.connect(self._suggest_id)
 
-        title = label("Новый провайдер", "title")
+        title = label(tr("dialog.title"), "title")
         title.setStyleSheet("font-size: 18px;")
-        hint = label("Любой OpenAI-совместимый сервер: Ollama, LM Studio, vLLM, llama.cpp и другие.", "hint", wrap=True)
+        hint = label(tr("dialog.hint"), "hint", wrap=True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 20)
         layout.setSpacing(6)
         layout.addWidget(title)
         layout.addWidget(hint)
         layout.addSpacing(10)
-        for caption, field in (("Название", self.name), ("ID в opencode", self.ident), ("Адрес API", self.url), ("API-ключ", self.key)):
+        for caption, field in ((tr("dialog.name"), self.name), (tr("dialog.id"), self.ident), (tr("dialog.url"), self.url), (tr("dialog.key"), self.key)):
             layout.addWidget(label(caption, "fieldLabel"))
             layout.addWidget(field)
             layout.addSpacing(4)
@@ -248,11 +262,11 @@ class AddProviderDialog(QDialog):
         layout.addWidget(self.status)
         layout.addSpacing(8)
 
-        check = button("Проверить", icon_name="refresh")
+        check = button(tr("dialog.check"), icon_name="refresh")
         check.clicked.connect(self._check)
-        cancel = button("Отмена", "ghost")
+        cancel = button(tr("dialog.cancel"), "ghost")
         cancel.clicked.connect(self.reject)
-        self.save = button("Добавить", "primary", "plus")
+        self.save = button(tr("dialog.add"), "primary", "plus")
         self.save.clicked.connect(self._accept)
         actions = QHBoxLayout()
         actions.addWidget(check)
@@ -283,31 +297,32 @@ class AddProviderDialog(QDialog):
     def _check(self) -> None:
         _, _, url, key = self.values()
         if not url:
-            self._set_status("Укажите адрес API.", "error")
+            self._set_status(tr("dialog.needUrl"), "error")
             return
-        self._set_status("Подключаюсь…", "hint")
+        self._set_status(tr("dialog.connecting"), "hint")
         tasks.run(lambda: discovery.discover(url, key), self._checked, lambda message: self._set_status(message, "error"))
 
     def _checked(self, result: Discovery) -> None:
         if not result.ok:
-            self._set_status(f"Сервер не ответил: {result.error}", "error")
+            self._set_status(tr("dialog.failed", error=result.error), "error")
             return
         self.result_models = result.models
-        self._set_status(f"Работает: {SERVER_NAMES[result.server]}, моделей: {len(result.models)}.", "hint")
+        self._set_status(tr("dialog.works", server=tr(f"server.{result.server}"), count=len(result.models)), "hint")
 
     def _accept(self) -> None:
         ident, _, url, _ = self.values()
         if not ident or not url:
-            self._set_status("Нужны ID и адрес API.", "error")
+            self._set_status(tr("dialog.needIdUrl"), "error")
             return
         if ident in self.existing:
-            self._set_status(f"Провайдер «{ident}» уже есть в конфиге.", "error")
+            self._set_status(tr("dialog.exists", id=ident), "error")
             return
         self.accept()
 
 
 class MainWindow(QMainWindow):
     synced = Signal(str)
+    language_changed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -400,9 +415,9 @@ class MainWindow(QMainWindow):
         chosen = self.checked.get(provider_id, set())
         add = [row.remote for row in rows if row.status == "new" and row.remote and (not only_checked or row.id in chosen)]
         if not add:
-            self.show_banner(f"{provider.title}: новых моделей нет.", "accent")
+            self.show_banner(tr("banner.noNew", provider=provider.title), "accent")
             return
-        self._write(provider_id, add, [], f"{provider.title}: добавлено моделей — {len(add)}.")
+        self._write(provider_id, add, [], tr("banner.added", provider=provider.title, count=len(add)))
 
     def sync_all(self) -> None:
         plan = []
@@ -413,8 +428,8 @@ class MainWindow(QMainWindow):
                 if add:
                     plan.append((provider.id, add))
         if not plan:
-            self.show_banner("Все провайдеры уже синхронизированы.", "accent")
-            self.synced.emit("Все провайдеры уже синхронизированы.")
+            self.show_banner(tr("banner.allSynced"), "accent")
+            self.synced.emit(tr("banner.allSynced"))
             return
         total = sum(len(add) for _, add in plan)
 
@@ -423,25 +438,34 @@ class MainWindow(QMainWindow):
             for provider_id, add in plan:
                 discovery.apply(config, provider_id, add, [])
 
-        message = f"Добавлено моделей — {total}, провайдеров — {len(plan)}."
+        message = tr("banner.addedAll", count=total, providers=len(plan))
         self._run_write(work, message)
 
-    def remove_missing(self, provider_id: str) -> None:
+    def remove_selected(self, provider_id: str) -> None:
         provider = self.config.provider(provider_id)
-        result = self.results.get(provider_id)
-        if not provider or not result or not result.ok:
+        if not provider:
             return
         chosen = self.checked.get(provider_id, set())
-        remove = [row.id for row in discovery.diff(provider, result) if row.status == "missing" and row.id in chosen]
+        rows = discovery.diff(provider, self.results.get(provider_id) or Discovery(ok=False))
+        remove = [row.id for row in rows if row.in_config and row.id in chosen]
         if not remove:
             return
         answer = QMessageBox.question(
             self,
-            "Удалить модели",
-            f"Удалить из конфига opencode модели, которых больше нет на сервере ({len(remove)})?\n\n" + "\n".join(remove),
+            tr("remove.title"),
+            tr("remove.text", count=len(remove)) + "\n\n" + "\n".join(remove),
         )
         if answer == QMessageBox.StandardButton.Yes:
-            self._write(provider_id, [], remove, f"{provider.title}: удалено моделей — {len(remove)}.")
+            chosen.difference_update(remove)
+            self._write(provider_id, [], remove, tr("banner.removed", provider=provider.title, count=len(remove)))
+
+    def set_tools(self, provider_id: str, model_id: str, enabled: bool) -> None:
+        def work() -> None:
+            config = OpencodeConfig.load(self.config_file)
+            config.set_model_tools(provider_id, model_id, enabled)
+            config.save()
+
+        self._run_write(work, tr("banner.toolsOn" if enabled else "banner.toolsOff", model=model_id))
 
     def add_provider(self, preset: Suggestion | None = None) -> None:
         dialog = AddProviderDialog(self, {provider.id for provider in self.config.providers()}, preset)
@@ -456,7 +480,7 @@ class MainWindow(QMainWindow):
             discovery.apply(config, ident, models, [])
 
         self.selected = ident
-        self._run_write(work, f"Провайдер «{name or ident}» добавлен, моделей — {len(models)}.", refresh=True)
+        self._run_write(work, tr("banner.providerAdded", name=name or ident, count=len(models)), refresh=True)
 
     def _write(self, provider_id: str, add: list[RemoteModel], remove: list[str], message: str) -> None:
         def work() -> None:
@@ -480,7 +504,7 @@ class MainWindow(QMainWindow):
 
         def failed(error: str) -> None:
             self.busy = False
-            self.show_banner(f"Не удалось сохранить конфиг: {error}", "danger")
+            self.show_banner(tr("banner.saveFailed", error=error), "danger")
             self.render()
 
         tasks.run(work, done, failed)
@@ -500,7 +524,8 @@ class MainWindow(QMainWindow):
         brand = QVBoxLayout()
         brand.setSpacing(0)
         brand.addWidget(label("Model Sync", "brand"))
-        brand.addWidget(label("модели для opencode", "brandSub"))
+        self.brand_sub = label(tr("app.brandSub"), "brandSub")
+        brand.addWidget(self.brand_sub)
         header = QHBoxLayout()
         header.setContentsMargins(6, 0, 0, 10)
         header.setSpacing(10)
@@ -508,7 +533,8 @@ class MainWindow(QMainWindow):
         header.addLayout(brand, 1)
         layout.addLayout(header)
 
-        layout.addWidget(label("ПРОВАЙДЕРЫ", "sectionLabel"))
+        self.providers_label = label(tr("sidebar.providers"), "sectionLabel")
+        layout.addWidget(self.providers_label)
         self.provider_list = QListWidget()
         self.provider_list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.provider_list.setSpacing(2)
@@ -518,16 +544,33 @@ class MainWindow(QMainWindow):
         self.suggestion_box.setSpacing(6)
         layout.addLayout(self.suggestion_box)
 
-        add = button("Добавить провайдера", "ghost", "plus")
-        add.clicked.connect(lambda: self.add_provider())
-        layout.addWidget(add, 0, Qt.AlignmentFlag.AlignLeft)
+        self.add_button = button(tr("sidebar.addProvider"), "ghost", "plus")
+        self.add_button.clicked.connect(lambda: self.add_provider())
+        self.language_button = button("", "ghost")
+        self.language_button.clicked.connect(self.switch_language)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.add_button)
+        bottom.addStretch(1)
+        bottom.addWidget(self.language_button)
+        layout.addLayout(bottom)
         return sidebar
+
+    def switch_language(self) -> None:
+        i18n.set_language("en" if i18n.language() == "ru" else "ru")
+        self.language_changed.emit()
+        self.render()
 
     def render(self) -> None:
         self.render_sidebar()
         self.render_content()
 
     def render_sidebar(self) -> None:
+        self.brand_sub.setText(tr("app.brandSub"))
+        self.providers_label.setText(tr("sidebar.providers"))
+        self.add_button.setText(tr("sidebar.addProvider"))
+        # The button names the language it switches to.
+        self.language_button.setText("EN" if i18n.language() == "ru" else "RU")
+        self.language_button.setToolTip(tr("sidebar.language"))
         self.provider_list.clear()
         for provider in self.managed():
             card = ProviderCard(provider, self.results.get(provider.id))
@@ -543,7 +586,7 @@ class MainWindow(QMainWindow):
             if widget:
                 widget.deleteLater()
         if self.suggestions:
-            self.suggestion_box.addWidget(label("НАЙДЕНО НА ЭТОМ КОМПЬЮТЕРЕ", "sectionLabel"))
+            self.suggestion_box.addWidget(label(tr("sidebar.found"), "sectionLabel"))
             for suggestion in self.suggestions:
                 card = SuggestionCard(suggestion)
                 card.added.connect(self.add_provider)
@@ -567,8 +610,7 @@ class MainWindow(QMainWindow):
         provider = self.config.provider(self.selected) if self.selected else None
         if not provider:
             empty = label(
-                "В конфиге opencode пока нет провайдеров со своим адресом API.\n"
-                "Добавьте провайдера слева или выберите найденный локальный сервер.",
+                tr("empty.noProviders"),
                 "empty",
             )
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -581,15 +623,15 @@ class MainWindow(QMainWindow):
 
     def _top_bar(self) -> QHBoxLayout:
         folder = button("", "ghost", "folder")
-        folder.setToolTip("Открыть папку конфига opencode")
+        folder.setToolTip(tr("top.openFolder"))
         folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.config_file.parent))))
         path = ElidedLabel(str(self.config_file), "configPath", Qt.TextElideMode.ElideMiddle)
-        refresh = button("Обновить", icon_name="refresh")
-        refresh.setToolTip("Заново опросить серверы. Конфиг не меняется.")
+        refresh = button(tr("top.refresh"), icon_name="refresh")
+        refresh.setToolTip(tr("top.refreshHint"))
         refresh.clicked.connect(self.refresh)
-        sync_all = button("Синхронизировать всё", "primary", "sync")
+        sync_all = button(tr("top.syncAll"), "primary", "sync")
         sync_all.setEnabled(not self.busy)
-        sync_all.setToolTip("Добавить новые модели всех провайдеров")
+        sync_all.setToolTip(tr("top.syncAllHint"))
         sync_all.clicked.connect(self.sync_all)
         bar = QHBoxLayout()
         bar.setSpacing(8)
@@ -603,7 +645,7 @@ class MainWindow(QMainWindow):
         title = ElidedLabel(provider.title, "title")
         details = [provider.base_url or ""]
         if result and result.ok:
-            details.append(SERVER_NAMES[result.server])
+            details.append(tr(f"server.{result.server}"))
         subtitle = ElidedLabel("  ·  ".join(details), "subtitle")
         text = QVBoxLayout()
         text.setSpacing(4)
@@ -614,12 +656,12 @@ class MainWindow(QMainWindow):
         header.setSpacing(10)
         header.addLayout(text, 1)
         if result is None:
-            header.addWidget(pill("Проверяю сервер…", "muted"))
+            header.addWidget(pill(tr("header.checking"), "muted"))
         elif not result.ok:
-            header.addWidget(pill("Нет ответа", "danger"))
-        sync = button("Синхронизировать", "primary", "sync")
+            header.addWidget(pill(tr("header.offline"), "danger"))
+        sync = button(tr("header.sync"), "primary", "sync")
         sync.setEnabled(bool(result and result.ok) and not self.busy)
-        sync.setToolTip("Добавить в конфиг все новые модели этого провайдера")
+        sync.setToolTip(tr("header.syncHint"))
         sync.clicked.connect(lambda: self.sync(provider.id))
         header.addWidget(sync, 0, Qt.AlignmentFlag.AlignVCenter)
         return header
@@ -628,9 +670,9 @@ class MainWindow(QMainWindow):
         rows = discovery.diff(provider, result or Discovery(ok=False))
         if not rows:
             text = (
-                f"Сервер не отвечает: {result.error}"
+                tr("empty.offline", error=result.error)
                 if result is not None and not result.ok
-                else "Моделей нет ни в конфиге, ни на сервере."
+                else tr("empty.noModels")
             )
             empty = label(text, "empty")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -644,6 +686,7 @@ class MainWindow(QMainWindow):
         for index, row in enumerate(rows):
             widget = ModelRowWidget(row, row.id in chosen, index == len(rows) - 1)
             widget.toggled.connect(lambda w=widget, pid=provider.id: self._toggle(pid, w))
+            widget.tools_toggled.connect(lambda model, value, pid=provider.id: self.set_tools(pid, model, value))
             column.addWidget(widget)
         column.addStretch(1)
         scroll = QScrollArea()
@@ -662,26 +705,26 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.render_content)
 
     def _footer(self, provider: Provider, result: Discovery | None) -> QHBoxLayout:
-        rows = discovery.diff(provider, result) if result else []
+        rows = discovery.diff(provider, result or Discovery(ok=False))
         chosen = self.checked.get(provider.id, set())
         new = [row for row in rows if row.status == "new"]
         missing = [row for row in rows if row.status == "missing"]
         picked_new = [row for row in new if row.id in chosen]
-        picked_missing = [row for row in missing if row.id in chosen]
-        configured = len([row for row in rows if row.status != "new"]) if result else len(provider.models)
+        picked_config = [row for row in rows if row.in_config and row.id in chosen]
+        configured = len([row for row in rows if row.in_config])
 
         summary = label(
-            f"В конфиге: {configured}   ·   Новых: {len(new)}   ·   Нет на сервере: {len(missing)}", "subtitle"
+            tr("footer.summary", configured=configured, new=len(new), missing=len(missing)), "subtitle"
         )
         footer = QHBoxLayout()
         footer.addWidget(summary, 1)
-        if missing:
-            remove = button(f"Удалить отмеченные ({len(picked_missing)})", "danger", "trash", theme.current().danger)
-            remove.setEnabled(bool(picked_missing) and not self.busy)
-            remove.clicked.connect(lambda: self.remove_missing(provider.id))
+        if configured:
+            remove = button(tr("footer.remove", count=len(picked_config)), "danger", "trash", theme.current().danger)
+            remove.setEnabled(bool(picked_config) and not self.busy)
+            remove.clicked.connect(lambda: self.remove_selected(provider.id))
             footer.addWidget(remove)
         if new:
-            add = button(f"Добавить отмеченные ({len(picked_new)})", icon_name="plus")
+            add = button(tr("footer.add", count=len(picked_new)), icon_name="plus")
             add.setEnabled(bool(picked_new) and not self.busy)
             add.clicked.connect(lambda: self.sync(provider.id, only_checked=True))
             footer.addWidget(add)

@@ -14,7 +14,7 @@ def write(path: Path, data: dict) -> Path:
 LEGACY_MAC = {
     "npm": "@ai-sdk/openai-compatible",
     "name": "Ollama MAC",
-    "options": {"baseURL": "http://192.168.88.26:11434/v1", "apiKey": "ollama"},
+    "options": {"baseURL": "http://192.168.1.10:11434/v1", "apiKey": "ollama"},
     "models": {"qwen3.8:27b-mlx": {"name": "Qwen3.8-mlx"}},
 }
 
@@ -41,7 +41,7 @@ def test_models_go_to_the_legacy_section_that_defines_the_provider(tmp_path):
     saved = json.loads(path.read_text())
     assert "providers" not in saved
     mac = saved["provider"]["ollama-mac"]
-    assert mac["options"]["baseURL"] == "http://192.168.88.26:11434/v1"
+    assert mac["options"]["baseURL"] == "http://192.168.1.10:11434/v1"
     assert mac["models"]["qwen3.6:latest"] == {"tool_call": True, "limit": {"context": 65536, "output": 32768}}
     assert mac["models"]["qwen3.8:27b-mlx"] == {"name": "Qwen3.8-mlx"}
 
@@ -125,3 +125,28 @@ def test_env_placeholders_are_resolved(tmp_path, monkeypatch):
         {"provider": {"m": {"options": {"baseURL": "http://h/v1", "apiKey": "{env:MY_KEY}"}}}},
     )
     assert OpencodeConfig.load(path).provider("m").api_key == "secret"
+
+
+def test_set_model_tools_uses_the_section_shape(tmp_path):
+    path = write(
+        tmp_path / "opencode.json",
+        {
+            "provider": {"old": LEGACY_MAC},
+            "providers": {"new": {"settings": {"baseURL": "http://h/v1"}, "models": {"m": {"name": "M"}}}},
+        },
+    )
+    config = OpencodeConfig.load(path)
+    config.set_model_tools("old", "qwen3.8:27b-mlx", False)
+    config.set_model_tools("new", "m", False)
+    assert config.provider("old").models["qwen3.8:27b-mlx"] == {"name": "Qwen3.8-mlx", "tool_call": False}
+    assert config.provider("new").models["m"] == {"name": "M", "capabilities": {"tools": False}}
+    with pytest.raises(ConfigError):
+        config.set_model_tools("old", "unknown", True)
+
+
+def test_configured_tools_reads_both_shapes():
+    from opencode_model_sync.config import configured_tools
+
+    assert configured_tools({"tool_call": False}) is False
+    assert configured_tools({"capabilities": {"tools": True}}) is True
+    assert configured_tools({"name": "x"}) is None
