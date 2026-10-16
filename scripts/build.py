@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,6 +39,28 @@ def target() -> str:
     machine = platform.machine().lower()
     arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(machine, machine)
     return f"{system}-{arch}"
+
+
+def archive_macos(app: Path, archive: Path) -> None:
+    """Preserve bundle symlinks and verify the archive users will download."""
+    subprocess.run(
+        ["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(archive)],
+        check=True,
+    )
+    with tempfile.TemporaryDirectory(prefix="model-sync-archive-") as directory:
+        subprocess.run(["ditto", "-x", "-k", str(archive), directory], check=True)
+        restored = Path(directory) / app.name
+        for original in app.rglob("*"):
+            relative = original.relative_to(app)
+            extracted = restored / relative
+            if original.is_symlink():
+                if not extracted.is_symlink() or extracted.readlink() != original.readlink():
+                    raise RuntimeError(f"Archive did not preserve symlink: {relative}")
+                if not extracted.exists():
+                    raise RuntimeError(f"Archive contains a broken symlink: {relative}")
+        subprocess.run(
+            ["codesign", "--verify", "--deep", "--strict", str(restored)], check=True
+        )
 
 
 def main() -> None:
@@ -80,7 +103,8 @@ def main() -> None:
 
     archive_base = dist / f"{SLUG}-{target()}"
     if sys.platform == "darwin":
-        archive = shutil.make_archive(str(archive_base), "zip", dist, f"{NAME}.app")
+        archive = f"{archive_base}.zip"
+        archive_macos(dist / f"{NAME}.app", Path(archive))
     elif sys.platform == "win32":
         archive = shutil.make_archive(str(archive_base), "zip", dist, NAME)
     else:
