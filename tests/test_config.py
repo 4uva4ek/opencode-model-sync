@@ -150,3 +150,63 @@ def test_configured_tools_reads_both_shapes():
     assert configured_tools({"tool_call": False}) is False
     assert configured_tools({"capabilities": {"tools": True}}) is True
     assert configured_tools({"name": "x"}) is None
+
+
+@pytest.mark.parametrize("section", ["provider", "providers"])
+def test_rename_provider_preserves_settings_and_id(tmp_path, section):
+    path = write(tmp_path / "opencode.json", {section: {"local": LEGACY_MAC}, "model": "local/m"})
+    config = OpencodeConfig.load(path)
+    config.rename_provider("local", "  New name  ")
+    config.save()
+    saved = json.loads(path.read_text())
+    assert saved[section]["local"] == {**LEGACY_MAC, "name": "New name"}
+    assert saved["model"] == "local/m"
+    assert json.loads(next(tmp_path.glob("*.bak-*")).read_text())[section]["local"] == LEGACY_MAC
+    with pytest.raises(ConfigError):
+        config.rename_provider("local", "  ")
+    with pytest.raises(ConfigError):
+        config.rename_provider("missing", "New name")
+
+
+@pytest.mark.parametrize("sections", [("provider",), ("providers",), ("provider", "providers")])
+def test_remove_provider_clears_shadowed_entries_and_references(tmp_path, sections):
+    data = {section: {"local": LEGACY_MAC, "other": LEGACY_MAC} for section in sections}
+    data.update({"model": "local/m", "small_model": "other/m",
+                 "agent": {"build": {"model": "local/m", "prompt": "keep"},
+                           "review": {"model": "local-other/m"}},
+                 "mode": {"plan": {"model": "local/m"}},
+                 "enabled_providers": ["local", "other"], "disabled_providers": ["else"],
+                 "theme": "dark"})
+    path = write(tmp_path / "opencode.json", data)
+    config = OpencodeConfig.load(path)
+    config.remove_provider("local")
+    config.save()
+    saved = OpencodeConfig.load(path)
+    assert saved.provider("local") is None
+    for section in sections:
+        assert saved.data[section] == {"other": LEGACY_MAC}
+    assert "model" not in saved.data
+    assert saved.data["small_model"] == "other/m"
+    assert saved.data["agent"] == {"build": {"prompt": "keep"}, "review": {"model": "local-other/m"}}
+    assert saved.data["mode"] == {"plan": {}}
+    assert saved.data["enabled_providers"] == ["other"]
+    assert saved.data["disabled_providers"] == ["else"]
+    assert saved.data["theme"] == "dark"
+    assert json.loads(next(tmp_path.glob("*.bak-*")).read_text()) == data
+    with pytest.raises(ConfigError):
+        saved.remove_provider("local")
+
+
+@pytest.mark.parametrize("operation", ["rename", "remove"])
+def test_provider_edits_do_not_overwrite_jsonc(tmp_path, operation):
+    path = tmp_path / "opencode.jsonc"
+    original = '{/* keep */ "provider": {"local": {"name": "Local"}}}'
+    path.write_text(original)
+    config = OpencodeConfig.load(path)
+    if operation == "rename":
+        config.rename_provider("local", "New name")
+    else:
+        config.remove_provider("local")
+    with pytest.raises(ConfigError):
+        config.save()
+    assert path.read_text() == original

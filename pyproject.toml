@@ -1,6 +1,6 @@
 [project]
 name = "opencode-model-sync"
-version = "0.1.1"
+version = "0.1.2"
 description = "Desktop app that adds models from local and self-hosted servers to the opencode config"
 readme = "README.md"
 license = "MIT"

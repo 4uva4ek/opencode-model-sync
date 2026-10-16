@@ -10,6 +10,13 @@ LANGUAGES = {"en": "English", "ru": "Русский"}
 
 _TEXT: dict[str, dict[str, str]] = {
     "en": {
+        "provider.actions": "Provider actions",
+        "provider.rename": "Rename provider",
+        "provider.remove": "Remove provider",
+        "provider.removeConfirm": "Remove provider “{name}” and all its models from the opencode config? Model selections using this provider will also be cleared. Models on the server will not be deleted.",
+        "banner.providerRenamed": "Provider renamed to “{name}”.",
+        "banner.providerRemoved": "Provider “{name}” removed.",
+        "error.emptyName": "Enter a provider name.",
         "app.brandSub": "models for opencode",
         "app.trayHint": "The app keeps running in the tray.",
         "tray.open": "Open",
@@ -92,6 +99,13 @@ _TEXT: dict[str, dict[str, str]] = {
         "error.invalidJson": "{file} is not valid JSON: {error}",
     },
     "ru": {
+        "provider.actions": "Действия с провайдером",
+        "provider.rename": "Переименовать",
+        "provider.remove": "Удалить провайдера",
+        "provider.removeConfirm": "Удалить провайдера «{name}» и все его модели из конфига opencode? Выбор моделей этого провайдера в настройках также будет сброшен. Модели на сервере не удалятся.",
+        "banner.providerRenamed": "Провайдер переименован в «{name}».",
+        "banner.providerRemoved": "Провайдер «{name}» удалён.",
+        "error.emptyName": "Введите название провайдера.",
         "app.brandSub": "модели для opencode",
         "app.trayHint": "Приложение работает в трее.",
         "tray.open": "Открыть",

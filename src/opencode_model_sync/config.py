@@ -132,6 +132,34 @@ class OpencodeConfig:
             "models": {},
         }
 
+    def rename_provider(self, provider_id: str, name: str) -> None:
+        """Change the display name without invalidating provider/model IDs."""
+        name = name.strip()
+        if not name:
+            raise ConfigError(tr("error.emptyName"))
+        self._entry(provider_id)["name"] = name
+
+    def remove_provider(self, provider_id: str) -> None:
+        self._entry(provider_id)  # Report stale selections before changing anything.
+        # Remove shadowed entries as well, or the legacy provider would reappear.
+        for section in (LEGACY, CURRENT):
+            _as_object(self.data.get(section)).pop(provider_id, None)
+        # Let opencode choose a fallback instead of retaining an unavailable model.
+        def clear_models(entry: dict[str, Any]) -> None:
+            for key in ("model", "small_model"):
+                value = entry.get(key)
+                if isinstance(value, str) and value.startswith(provider_id + "/"):
+                    entry.pop(key)
+
+        clear_models(self.data)
+        for section in ("agent", "mode"):
+            for entry in _as_object(self.data.get(section)).values():
+                if isinstance(entry, dict):
+                    clear_models(entry)
+        for key in ("enabled_providers", "disabled_providers"):
+            if isinstance(self.data.get(key), list):
+                self.data[key] = [item for item in self.data[key] if item != provider_id]
+
     def save(self) -> None:
         if self.has_comments:
             raise ConfigError(tr("error.comments", file=self.path.name))

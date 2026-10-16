@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QInputDialog,
+    QMenu,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -382,6 +384,8 @@ class MainWindow(QMainWindow):
 
     def _discover(self, provider: Provider) -> None:
         def done(result: Discovery) -> None:
+            if not self.config.provider(provider.id):
+                return
             self.results[provider.id] = result
             self.checked.setdefault(provider.id, set()).update(
                 model.id for model in result.models if model.id not in provider.models
@@ -402,6 +406,9 @@ class MainWindow(QMainWindow):
             return
         if self.selected not in {provider.id for provider in self.managed()}:
             self.selected = next((provider.id for provider in self.managed()), None)
+        active = {provider.id for provider in self.config.providers()}
+        self.results = {key: value for key, value in self.results.items() if key in active}
+        self.checked = {key: value for key, value in self.checked.items() if key in active}
         self.render()
 
     # ---- actions
@@ -481,6 +488,46 @@ class MainWindow(QMainWindow):
 
         self.selected = ident
         self._run_write(work, tr("banner.providerAdded", name=name or ident, count=len(models)), refresh=True)
+
+    def rename_provider(self, provider_id: str) -> None:
+        if self.busy:
+            return
+        provider = self.config.provider(provider_id)
+        if not provider:
+            return
+        name, accepted = QInputDialog.getText(
+            self, tr("provider.rename"), tr("dialog.name"), text=provider.title
+        )
+        if not accepted or name.strip() == provider.title:
+            return
+
+        def work() -> None:
+            config = OpencodeConfig.load(self.config_file)
+            config.rename_provider(provider_id, name)
+            config.save()
+
+        self._run_write(work, tr("banner.providerRenamed", name=name.strip()))
+
+    def remove_provider(self, provider_id: str) -> None:
+        if self.busy:
+            return
+        provider = self.config.provider(provider_id)
+        if not provider:
+            return
+        answer = QMessageBox.question(
+            self, tr("provider.remove"), tr("provider.removeConfirm", name=provider.title),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        def work() -> None:
+            config = OpencodeConfig.load(self.config_file)
+            config.remove_provider(provider_id)
+            config.save()
+
+        self._run_write(work, tr("banner.providerRemoved", name=provider.title))
 
     def _write(self, provider_id: str, add: list[RemoteModel], remove: list[str], message: str) -> None:
         def work() -> None:
@@ -568,6 +615,7 @@ class MainWindow(QMainWindow):
         self.brand_sub.setText(tr("app.brandSub"))
         self.providers_label.setText(tr("sidebar.providers"))
         self.add_button.setText(tr("sidebar.addProvider"))
+        self.add_button.setEnabled(not self.busy)
         # The button names the language it switches to.
         self.language_button.setText("EN" if i18n.language() == "ru" else "RU")
         self.language_button.setToolTip(tr("sidebar.language"))
@@ -664,6 +712,16 @@ class MainWindow(QMainWindow):
         sync.setToolTip(tr("header.syncHint"))
         sync.clicked.connect(lambda: self.sync(provider.id))
         header.addWidget(sync, 0, Qt.AlignmentFlag.AlignVCenter)
+        manage = button("⋯", "ghost")
+        manage.setObjectName("providerActions")
+        manage.setAccessibleName(tr("provider.actions"))
+        manage.setToolTip(tr("provider.actions"))
+        manage.setEnabled(not self.busy)
+        menu = QMenu(manage)
+        menu.addAction(tr("provider.rename")).triggered.connect(lambda: self.rename_provider(provider.id))
+        menu.addAction(tr("provider.remove")).triggered.connect(lambda: self.remove_provider(provider.id))
+        manage.setMenu(menu)
+        header.addWidget(manage, 0, Qt.AlignmentFlag.AlignVCenter)
         return header
 
     def _model_list(self, provider: Provider, result: Discovery | None) -> QWidget:

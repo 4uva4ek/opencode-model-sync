@@ -13,6 +13,7 @@ A small desktop app for Linux, macOS (Apple Silicon) and Windows. It asks your m
 - The tool-calling label of a model in the config is a switch. Turn it off for a model that says it supports tools but handles them poorly.
 - Finds local servers on their default ports that are not in the config yet and offers to add them.
 - The config only changes when you press a button. A backup `opencode.json.bak-model-sync-*` is written next to it before the first change.
+- Rename or remove a provider from its **⋯** menu. Renaming keeps its ID; removing also clears model selections that refer to it.
 - Lives in the tray. Light or dark theme follows the system. Russian and English interface.
 
 Models go into the config section where the provider is defined, the legacy `provider` map or the newer `providers` map. If one ID ended up in both, opencode would ignore the legacy entry together with its server address.
