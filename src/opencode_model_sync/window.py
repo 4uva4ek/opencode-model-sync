@@ -1,11 +1,12 @@
-"""The main window: providers on the left, the selected provider's models on the right."""
+"""The main window: providers and agents on the left, the selected page on the right."""
 
 from __future__ import annotations
 
 import re
+import subprocess
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QFileSystemWatcher, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QEnterEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -27,66 +28,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import discovery, i18n, icons, tasks, theme
+from . import agents, catalog, discovery, i18n, icons, tasks, theme
+from .agents_view import AgentDialog, AgentsPanel, ModelList, TeamDialog
 from .config import ConfigError, OpencodeConfig, Provider, config_path
 from .discovery import Discovery, ModelRow, RemoteModel, Suggestion
 from .i18n import tr
-
-
-def repolish(widget: QWidget) -> None:
-    widget.style().unpolish(widget)
-    widget.style().polish(widget)
-
-
-def label(text: str = "", name: str | None = None, wrap: bool = False) -> QLabel:
-    widget = QLabel(text)
-    if name:
-        widget.setObjectName(name)
-    widget.setWordWrap(wrap)
-    return widget
-
-
-class ElidedLabel(QLabel):
-    """A label that shortens its text with an ellipsis instead of widening its parent."""
-
-    def __init__(self, text: str, name: str | None = None, mode: Qt.TextElideMode = Qt.TextElideMode.ElideRight) -> None:
-        super().__init__()
-        self.full = text
-        self.mode = mode
-        if name:
-            self.setObjectName(name)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.setMinimumWidth(30)
-        self.setToolTip(text)
-        self.setText(text)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self.setText(self.fontMetrics().elidedText(self.full, self.mode, self.width()))
-
-
-def pill(text: str, tone: str) -> QLabel:
-    widget = label(text, "pill")
-    widget.setProperty("tone", tone)
-    widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-    return widget
-
-
-def button(text: str, name: str | None = None, icon_name: str | None = None, color: str | None = None) -> QPushButton:
-    widget = QPushButton(text)
-    if name:
-        widget.setObjectName(name)
-    if icon_name:
-        palette = theme.current()
-        tint = color or (palette.accent_text if name == "primary" else palette.muted)
-        widget.setIcon(icons.icon(icon_name, tint))
-        widget.setIconSize(QSize(16, 16))
-    widget.setCursor(Qt.CursorShape.PointingHandCursor)
-    return widget
-
-
-def tokens(count: int) -> str:
-    return f"{count // 1024}K" if count >= 1024 and count % 1024 == 0 else f"{round(count / 1000)}K"
+from .widgets import ElidedLabel, button, label, pill, repolish, tokens
 
 
 def host(url: str | None) -> str:
@@ -149,6 +96,46 @@ class ProviderCard(QFrame):
 
     def mousePressEvent(self, event) -> None:
         self.clicked.emit(self.provider_id)
+        super().mousePressEvent(event)
+
+
+class NavCard(QFrame):
+    """A sidebar entry that opens a page rather than a provider."""
+
+    clicked = Signal()
+
+    def __init__(self, title: str, hint: str, icon_name: str, count: int) -> None:
+        super().__init__()
+        self.setObjectName("providerCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(hint)
+        glyph = QLabel()
+        glyph.setPixmap(icons.icon(icon_name, theme.current().muted).pixmap(16, 16))
+        badge = label(str(count), "countBadge")
+        badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 9, 12, 9)
+        layout.setSpacing(10)
+        layout.addWidget(glyph)
+        layout.addWidget(ElidedLabel(title, "providerName"), 1)
+        layout.addWidget(badge)
+
+    def set_selected(self, selected: bool) -> None:
+        self.setProperty("selected", selected)
+        repolish(self)
+
+    def enterEvent(self, event: QEnterEvent) -> None:
+        self.setProperty("hover", True)
+        repolish(self)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.setProperty("hover", False)
+        repolish(self)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        self.clicked.emit()
         super().mousePressEvent(event)
 
 
@@ -339,6 +326,12 @@ class MainWindow(QMainWindow):
         self.selected: str | None = None
         self.checked: dict[str, set[str]] = {}
         self.busy = False
+        self.page = "models"  # or "agents"
+        # Connected models as opencode lists them; None while the list is loading.
+        self.connected: list[str] | None = None
+        self.connected_complete = False
+        self.models_note = ""
+        self.catalog: dict | None = None
 
         self.sidebar = self._build_sidebar()
         self.content = QWidget()
@@ -380,7 +373,46 @@ class MainWindow(QMainWindow):
             self.results[provider.id] = None
             self._discover(provider)
         tasks.run(lambda: discovery.scan_local(self.config), self._suggested, lambda _: None)
+        self._load_models()
         self.render()
+
+    def _load_models(self) -> None:
+        """Ask opencode which models it has connected, and fetch the catalog that describes them."""
+        self.connected = None
+        self.models_note = tr("model.loading")
+        config_file = self.config_file
+
+        def listed() -> tuple[list[str], str, bool]:
+            cli = catalog.find_cli()
+            if not cli:
+                return catalog.from_config(OpencodeConfig.load(config_file)), tr("model.noCli"), False
+            try:
+                refs = catalog.connected(cli)
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                return catalog.from_config(OpencodeConfig.load(config_file)), tr("model.failed", error=error), False
+            return refs, tr("model.count", count=len(refs)), True
+
+        def done(result: tuple[list[str], str, bool]) -> None:
+            self.connected, self.models_note, self.connected_complete = result
+            self.render()
+
+        def failed(error: str) -> None:
+            self.connected, self.models_note, self.connected_complete = [], tr("model.failed", error=error), False
+            self.render()
+
+        tasks.run(listed, done, failed)
+        tasks.run(lambda: catalog.load(catalog.cache_path()), self._catalog_loaded, lambda _: None)
+
+    def _catalog_loaded(self, data: dict) -> None:
+        self.catalog = data
+        if self.page == "agents":
+            self.render_content()
+
+    def model_list(self) -> ModelList:
+        if self.connected is None:
+            return ModelList(note=self.models_note, loading=True)
+        items = catalog.choices(self.config, self.connected, self.catalog)
+        return ModelList(items=items, note=self.models_note, loading=False, complete=self.connected_complete)
 
     def _discover(self, provider: Provider) -> None:
         def done(result: Discovery) -> None:
@@ -529,6 +561,49 @@ class MainWindow(QMainWindow):
 
         self._run_write(work, tr("banner.providerRemoved", name=provider.title))
 
+    def edit_agent(self, name: str | None = None) -> None:
+        item = agents.agent(self.config, name) if name else None
+        if name and not item:
+            return
+        taken = {agent.name for agent in agents.agents(self.config)}
+        dialog = AgentDialog(self, item, taken, agents.subagent_names(self.config), self.model_list)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        result = dialog.result_agent()
+
+        def work() -> None:
+            config = OpencodeConfig.load(self.config_file)
+            agents.save_agent(config, result, name)
+            config.save()
+
+        self._run_write(work, tr("banner.agentSaved", name=result.name))
+
+    def remove_agent(self, name: str) -> None:
+        answer = QMessageBox.question(self, tr("remove.agentTitle"), tr("remove.agentText", name=name))
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        def work() -> None:
+            config = OpencodeConfig.load(self.config_file)
+            agents.remove_agent(config, name)
+            config.save()
+
+        self._run_write(work, tr("banner.agentRemoved", name=name))
+
+    def build_team(self) -> None:
+        dialog = TeamDialog(self, {agent.name for agent in agents.agents(self.config)}, self.model_list)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        members = dialog.members()
+        make_default = dialog.make_default.isChecked()
+
+        def work() -> None:
+            config = OpencodeConfig.load(self.config_file)
+            agents.save_team(config, members, make_default)
+            config.save()
+
+        self._run_write(work, tr("banner.teamSaved", names=", ".join(member.name for member in members)))
+
     def _write(self, provider_id: str, add: list[RemoteModel], remove: list[str], message: str) -> None:
         def work() -> None:
             # Re-read the file so edits made since the window loaded it are not overwritten.
@@ -587,6 +662,12 @@ class MainWindow(QMainWindow):
         self.provider_list.setSpacing(2)
         layout.addWidget(self.provider_list, 1)
 
+        self.agents_label = label(tr("sidebar.agents"), "sectionLabel")
+        layout.addWidget(self.agents_label)
+        self.agents_box = QVBoxLayout()
+        self.agents_box.setContentsMargins(0, 0, 0, 6)
+        layout.addLayout(self.agents_box)
+
         self.suggestion_box = QVBoxLayout()
         self.suggestion_box.setSpacing(6)
         layout.addLayout(self.suggestion_box)
@@ -622,12 +703,22 @@ class MainWindow(QMainWindow):
         self.provider_list.clear()
         for provider in self.managed():
             card = ProviderCard(provider, self.results.get(provider.id))
-            card.set_selected(provider.id == self.selected)
+            card.set_selected(self.page == "models" and provider.id == self.selected)
             card.clicked.connect(self._select)
             item = QListWidgetItem()
             item.setSizeHint(card.sizeHint())
             self.provider_list.addItem(item)
             self.provider_list.setItemWidget(item, card)
+
+        self.agents_label.setText(tr("sidebar.agents"))
+        while self.agents_box.count():
+            widget = self.agents_box.takeAt(0).widget()
+            if widget:
+                widget.deleteLater()
+        nav = NavCard(tr("nav.agents"), tr("nav.agentsHint"), "users", len(agents.agents(self.config)))
+        nav.set_selected(self.page == "agents")
+        nav.clicked.connect(self._open_agents)
+        self.agents_box.addWidget(nav)
 
         while self.suggestion_box.count():
             widget = self.suggestion_box.takeAt(0).widget()
@@ -642,6 +733,11 @@ class MainWindow(QMainWindow):
 
     def _select(self, provider_id: str) -> None:
         self.selected = provider_id
+        self.page = "models"
+        self.render()
+
+    def _open_agents(self) -> None:
+        self.page = "agents"
         self.render()
 
     def render_content(self) -> None:
@@ -655,6 +751,14 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(self._top_bar())
         layout.addWidget(self.banner)
+        if self.page == "agents":
+            panel = AgentsPanel(agents.agents(self.config), agents.default_agent(self.config), self.model_list(), self.busy)
+            panel.edit.connect(self.edit_agent)
+            panel.remove.connect(self.remove_agent)
+            panel.new_agent.connect(lambda: self.edit_agent())
+            panel.new_team.connect(self.build_team)
+            layout.addWidget(panel, 1)
+            return
         provider = self.config.provider(self.selected) if self.selected else None
         if not provider:
             empty = label(

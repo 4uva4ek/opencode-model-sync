@@ -175,6 +175,36 @@ QLineEdit {{
     selection-background-color: {p.accent};
 }}
 QLineEdit:focus {{ border-color: {p.accent}; }}
+QLineEdit:disabled {{ color: {p.faint}; }}
+QPlainTextEdit {{
+    background: {p.surface};
+    border: 1px solid {p.border};
+    border-radius: 8px;
+    padding: 6px 8px;
+    selection-background-color: {p.accent};
+}}
+QPlainTextEdit:focus {{ border-color: {p.accent}; }}
+QComboBox {{
+    background: {p.surface};
+    border: 1px solid {p.border};
+    border-radius: 8px;
+    padding: 7px 10px;
+}}
+QComboBox:hover {{ background: {p.surface_hover}; }}
+QComboBox:disabled {{ color: {p.faint}; }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox QAbstractItemView {{
+    background: {p.surface};
+    border: 1px solid {p.border};
+    selection-background-color: {p.surface_hover};
+    selection-color: {p.text};
+    outline: none;
+}}
+#workerRow {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px; }}
+QListWidget#pickerList {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px; padding: 4px; }}
+QListWidget#pickerList::item {{ padding: 7px 10px; border-radius: 6px; }}
+QListWidget#pickerList::item:hover {{ background: {p.surface_hover}; }}
+QListWidget#pickerList::item:selected {{ background: {p.accent_soft}; color: {p.text}; }}
 #fieldLabel {{ color: {p.muted}; font-size: 12px; font-weight: 600; }}
 #hint {{ color: {p.faint}; font-size: 12px; }}
 #error {{ color: {p.danger}; font-size: 12px; }}
