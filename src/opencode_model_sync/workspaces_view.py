@@ -17,10 +17,6 @@ from . import icons, theme, workspaces
 from .i18n import tr
 from .widgets import ElidedLabel, button, label, pill, scrolled
 
-# When the page is too narrow for every tag, these give up their place, the least telling first.
-# A folder that is not on the disk holds on to its warning to the last.
-TAGS_THAT_YIELD = ("excluded", "archived", "git", "worktree", "missing")
-
 
 class WorkspaceRow(QFrame):
     exclude = Signal(object)
@@ -31,9 +27,6 @@ class WorkspaceRow(QFrame):
     def __init__(self, item: workspaces.Workspace, excluded: bool, busy: bool, last: bool) -> None:
         super().__init__()
         self.item = item
-        self._tags: list[tuple[str, QWidget]] = []
-        self._floor = 0  # the width the row needs with every tag out of the way
-        self._tag_gap = 0
         self.setObjectName("modelRow")
         self.setProperty("last", last)
         palette = theme.current()
@@ -44,28 +37,9 @@ class WorkspaceRow(QFrame):
 
         text = QVBoxLayout()
         text.setSpacing(2)
-
-        # The tags that say what kind of folder this is ride the name's line: when the page runs
-        # short of width it is the text here that shortens, not the buttons at the end of the row.
-        titled = QHBoxLayout()
-        titled.setSpacing(6)
-        titled.addWidget(ElidedLabel(item.name, "providerName"), 1)
-        text.addLayout(titled)
-
-        # The path gives way first: the counts and the date ride along on its line rather than
-        # taking room away from the buttons at the end of the row, and they shorten too.
-        where = QHBoxLayout()
-        where.setSpacing(8)
-        where.addWidget(ElidedLabel(item.directory, "mono", Qt.TextElideMode.ElideMiddle), 1)
-        if item.sessions:
-            sessions = ElidedLabel(tr("ws.sessions", count=item.sessions), "configPath")
-            sessions.setToolTip(tr("ws.sessionsHint"))
-            where.addWidget(sessions, 0, Qt.AlignmentFlag.AlignBottom)
-        if item.last_used:
-            seen = ElidedLabel(item.last_used, "configPath")
-            seen.setToolTip(tr("ws.lastUsedHint"))
-            where.addWidget(seen, 0, Qt.AlignmentFlag.AlignBottom)
-        text.addLayout(where)
+        text.addWidget(ElidedLabel(item.name, "providerName"))
+        details = ElidedLabel(item.directory, "mono", Qt.TextElideMode.ElideMiddle)
+        text.addWidget(details)
         if item.kind == workspaces.WORKTREE and item.project_dir:
             text.addWidget(ElidedLabel(tr("ws.of", folder=item.project_dir), "configPath"))
 
@@ -75,23 +49,24 @@ class WorkspaceRow(QFrame):
         layout.addWidget(glyph, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(text, 1)
 
-        # What kind of folder this is, told by small tags. A tag is shown at its whole width or
-        # not at all, so nothing is ever cut mid-word; the folder that is not on the disk is the
-        # last one to give up its place.
         if item.kind == workspaces.WORKTREE:
-            self._tags.append(("worktree", pill(tr("ws.worktree"), "accent", yields=True)))
+            layout.addWidget(pill(tr("ws.worktree"), "accent"))
         if item.is_git:
-            self._tags.append(("git", pill("git", "muted", yields=True)))
+            layout.addWidget(pill("git", "muted"))
         if not item.exists:
-            warning = pill(tr("ws.missing"), "danger", yields=True)
+            warning = pill(tr("ws.missing"), "danger")
             warning.setToolTip(tr("ws.missingHint"))
-            self._tags.append(("missing", warning))
+            layout.addWidget(warning)
         if item.archived:
-            self._tags.append(("archived", pill(tr("ws.archived"), "muted", yields=True)))
+            layout.addWidget(pill(tr("ws.archived"), "muted"))
+        if item.sessions:
+            count = pill(tr("ws.sessions", count=item.sessions), "muted")
+            count.setToolTip(tr("ws.sessionsHint"))
+            layout.addWidget(count)
+        if item.last_used:
+            layout.addWidget(pill(item.last_used, "muted"))
         if excluded:
-            self._tags.append(("excluded", pill(tr("ws.excluded"), "warning", yields=True)))
-        for _, widget in self._tags:
-            titled.addWidget(widget, 0, Qt.AlignmentFlag.AlignVCenter)
+            layout.addWidget(pill(tr("ws.excluded"), "warning"))
 
         if excluded:
             back = button(tr("ws.restore"), "ghost")
@@ -121,32 +96,6 @@ class WorkspaceRow(QFrame):
         open_action.triggered.connect(lambda: self.open.emit(item))
         manage.setMenu(menu)
         layout.addWidget(manage, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        # Measured once with every tag hidden, so what a tag may keep is worked out from the
-        # width alone and hiding one cannot set the next one off hiding itself.
-        for _, widget in self._tags:
-            widget.setVisible(False)
-        self._floor = layout.totalMinimumSize().width()
-        self._tag_gap = titled.spacing()
-        self._fit_tags()
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._fit_tags()
-
-    def _fit_tags(self) -> None:
-        """Keep as many tags as the row has whole widths for, the telling ones holding on."""
-        room = self.width() - self._floor
-        shown = {name for name, _ in self._tags}
-        for name in TAGS_THAT_YIELD:
-            if name in shown and self._tags_need(shown) > room:
-                shown.discard(name)
-        for name, widget in self._tags:
-            widget.setVisible(name in shown)
-
-    def _tags_need(self, names: set[str]) -> int:
-        widths = [widget.sizeHint().width() for name, widget in self._tags if name in names]
-        return sum(widths) + self._tag_gap * max(len(widths) - 1, 0)
 
 
 class WorkspacesPanel(QWidget):

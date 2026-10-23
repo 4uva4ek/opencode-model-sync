@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -35,15 +36,11 @@ from .agents_view import AgentDialog, AgentsPanel, ModelList, TeamDialog
 from .config import ConfigError, OpencodeConfig, Provider, config_path
 from .discovery import Discovery, ModelRow, RemoteModel, Suggestion
 from .i18n import tr
-from .tabs import TabBar, TabStrip, fade_in
 from .widgets import ElidedLabel, button, label, pill, repolish, scrolled, tokens
 from .workspaces_view import WorkspacesPanel
 
 # opencode wants to be told twice before it drops a worktree that holds changes.
 FORCE_NEEDED = "force"
-
-# The column of providers, and the left end of the tab strip above it, are the same width.
-SIDEBAR_WIDTH = 280
 
 
 def host(url: str | None) -> str:
@@ -360,45 +357,38 @@ class MainWindow(QMainWindow):
         self.content_layout.setContentsMargins(28, 24, 28, 22)
         self.content_layout.setSpacing(14)
 
+        providers = QWidget()
+        providers_layout = QHBoxLayout(providers)
+        providers_layout.setContentsMargins(0, 0, 0, 0)
+        providers_layout.setSpacing(0)
+        providers_layout.addWidget(self.sidebar)
+        providers_layout.addWidget(self.content, 1)
+
         self.workspaces_page = QWidget()
-        self.workspaces_page.setObjectName("content")
         self.workspaces_layout = QVBoxLayout(self.workspaces_page)
         self.workspaces_layout.setContentsMargins(28, 24, 28, 22)
         self.workspaces_layout.setSpacing(14)
 
-        self.tabs = TabBar()
+        self.tabs = QTabBar()
+        self.tabs.setObjectName("tabs")
+        self.tabs.setExpanding(False)
+        self.tabs.setDrawBase(False)
+        self.tabs.setMovable(False)
         self.tabs.addTab("")
         self.tabs.addTab("")
         self.tabs.currentChanged.connect(self._show_tab)
 
         self.stack = QStackedWidget()
-        self.stack.addWidget(self.content)
+        self.stack.addWidget(providers)
         self.stack.addWidget(self.workspaces_page)
-
-        # The strip runs the whole width at the top of the window and the sidebar sits under it, so
-        # nothing moves sideways when the tab changes; the brand keeps the tabs over the page.
-        pages = QWidget()
-        pages_layout = QVBoxLayout(pages)
-        pages_layout.setContentsMargins(0, 0, 0, 0)
-        pages_layout.setSpacing(0)
-        pages_layout.addWidget(self._banner_slot(), 0)
-        pages_layout.addWidget(self.stack, 1)
-
-        below = QWidget()
-        below_layout = QHBoxLayout(below)
-        below_layout.setContentsMargins(0, 0, 0, 0)
-        below_layout.setSpacing(0)
-        below_layout.addWidget(self.sidebar)
-        below_layout.addWidget(pages, 1)
-
-        self.strip = TabStrip(self.tabs, self._brand())
 
         root = QWidget()
         layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self.strip)
-        layout.addWidget(below, 1)
+        layout.addWidget(self._tab_strip())
+        layout.addWidget(self._banner_slot(), 0)
+        layout.addWidget(self.stack, 1)
         self.setCentralWidget(root)
 
         # opencode or the user may edit the config while the window is open.
@@ -562,7 +552,6 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         ident, name, url, key = dialog.values()
-        self._show_providers()  # the new provider wants to be looked at, not added behind a tab
         models = dialog.result_models if dialog.add_models.isChecked() else []
 
         def work() -> None:
@@ -806,32 +795,27 @@ class MainWindow(QMainWindow):
 
     # ---- rendering
 
-    def _brand(self) -> QWidget:
-        """The logo and the name, in the left end of the tab strip, as wide as the sidebar under it."""
-        brand = QWidget()
-        brand.setFixedWidth(SIDEBAR_WIDTH)  # the tabs start where the page under the strip starts
-        header = QHBoxLayout(brand)
-        header.setContentsMargins(20, 0, 12, 0)
-        header.setSpacing(10)
-
-        mark = QLabel()
-        mark.setPixmap(icons.logo().pixmap(34, 34))
-        header.addWidget(mark, 0, Qt.AlignmentFlag.AlignVCenter)
-        text = QVBoxLayout()
-        text.setSpacing(0)
-        text.addWidget(label("Model Sync", "brand"))
-        self.brand_sub = label(tr("app.brandSub"), "brandSub")
-        text.addWidget(self.brand_sub)
-        header.addLayout(text, 1)
-        return brand
-
     def _build_sidebar(self) -> QWidget:
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(SIDEBAR_WIDTH)
+        sidebar.setFixedWidth(280)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(14, 16, 14, 16)
+        layout.setContentsMargins(14, 20, 14, 16)
         layout.setSpacing(6)
+
+        logo = QLabel()
+        logo.setPixmap(icons.logo().pixmap(34, 34))
+        brand = QVBoxLayout()
+        brand.setSpacing(0)
+        brand.addWidget(label("Model Sync", "brand"))
+        self.brand_sub = label(tr("app.brandSub"), "brandSub")
+        brand.addWidget(self.brand_sub)
+        header = QHBoxLayout()
+        header.setContentsMargins(6, 0, 0, 10)
+        header.setSpacing(10)
+        header.addWidget(logo)
+        header.addLayout(brand, 1)
+        layout.addLayout(header)
 
         self.providers_label = label(tr("sidebar.providers"), "sectionLabel")
         layout.addWidget(self.providers_label)
@@ -861,6 +845,16 @@ class MainWindow(QMainWindow):
         layout.addLayout(bottom)
         return sidebar
 
+    def _tab_strip(self) -> QWidget:
+        strip = QWidget()
+        strip.setObjectName("tabStrip")
+        row = QHBoxLayout(strip)
+        row.setContentsMargins(20, 12, 20, 0)
+        row.setSpacing(8)
+        row.addWidget(self.tabs)
+        row.addStretch(1)
+        return strip
+
     def _banner_slot(self) -> QWidget:
         """The one banner of the window, above both tabs."""
         holder = QWidget()
@@ -877,7 +871,6 @@ class MainWindow(QMainWindow):
     def _show_tab(self, index: int) -> None:
         self.tab = "workspaces" if index == 1 else "providers"
         self.stack.setCurrentIndex(index)
-        fade_in(self.stack.currentWidget())
         if self.tab == "workspaces" and not self.ws_loaded:
             self.refresh_workspaces()
 
@@ -932,19 +925,13 @@ class MainWindow(QMainWindow):
                 card.added.connect(self.add_provider)
                 self.suggestion_box.addWidget(card)
 
-    def _show_providers(self) -> None:
-        """Whatever the sidebar opens belongs to the first tab, so it brings that tab along."""
-        self.tabs.setCurrentIndex(0)
-
     def _select(self, provider_id: str) -> None:
         self.selected = provider_id
         self.page = "models"
-        self._show_providers()
         self.render()
 
     def _open_agents(self) -> None:
         self.page = "agents"
-        self._show_providers()
         self.render()
 
     def render_content(self) -> None:
