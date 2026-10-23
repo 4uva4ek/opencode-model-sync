@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QTabBar,
@@ -37,7 +36,7 @@ from .agents_view import AgentDialog, AgentsPanel, ModelList, TeamDialog
 from .config import ConfigError, OpencodeConfig, Provider, config_path
 from .discovery import Discovery, ModelRow, RemoteModel, Suggestion
 from .i18n import tr
-from .widgets import ElidedLabel, button, label, pill, repolish, tokens
+from .widgets import ElidedLabel, button, label, pill, repolish, scrolled, tokens
 from .workspaces_view import WorkspacesPanel
 
 # opencode wants to be told twice before it drops a worktree that holds changes.
@@ -1057,12 +1056,7 @@ class MainWindow(QMainWindow):
             widget.tools_toggled.connect(lambda model, value, pid=provider.id: self.set_tools(pid, model, value))
             column.addWidget(widget)
         column.addStretch(1)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(container)
-        return scroll
+        return scrolled(container)
 
     def _toggle(self, provider_id: str, widget: ModelRowWidget) -> None:
         chosen = self.checked.setdefault(provider_id, set())

@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -29,7 +28,7 @@ from . import agents, theme
 from .agents import ACCESS, CUSTOM, MODES, PERMISSIONS, ROLES, Agent, Worker
 from .catalog import ModelChoice, find
 from .i18n import tr
-from .widgets import ElidedLabel, button, label, pill, repolish, tokens
+from .widgets import ElidedLabel, button, label, pill, repolish, scrolled, tokens
 
 
 @dataclass
@@ -62,15 +61,6 @@ def describe(item: ModelChoice) -> str:
 
 def section(text: str) -> QWidget:
     return label(text, "sectionLabel")
-
-
-def scrolled(widget: QWidget) -> QScrollArea:
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setWidget(widget)
-    return scroll
 
 
 def dialog_buttons(dialog: QDialog, accept_text: str, accept: Callable[[], None]) -> QHBoxLayout:

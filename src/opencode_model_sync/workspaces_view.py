@@ -9,23 +9,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from . import icons, theme, workspaces
 from .i18n import tr
-from .widgets import ElidedLabel, button, label, pill
-
-
-def scrolled(widget: QWidget) -> QScrollArea:
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setWidget(widget)
-    return scroll
+from .widgets import ElidedLabel, button, label, pill, scrolled
 
 
 class WorkspaceRow(QFrame):

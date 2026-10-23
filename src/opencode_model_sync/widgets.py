@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QWidget
+from PySide6.QtWidgets import QLabel, QPushButton, QScrollArea, QSizePolicy, QWidget
 
 from . import icons, theme
 
@@ -11,6 +11,16 @@ from . import icons, theme
 def repolish(widget: QWidget) -> None:
     widget.style().unpolish(widget)
     widget.style().polish(widget)
+
+
+def scrolled(widget: QWidget) -> QScrollArea:
+    """A list that scrolls vertically and never sideways, without a frame of its own."""
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+    scroll.setWidget(widget)
+    return scroll
 
 
 def label(text: str = "", name: str | None = None, wrap: bool = False) -> QLabel:
