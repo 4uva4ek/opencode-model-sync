@@ -326,6 +326,7 @@ def add(cli: Path | None, directory: str) -> Workspace:
 def remove(workspace: Workspace, cli: Path | None, force: bool = False) -> str:
     """Drop a workspace the way opencode does, and say which way that turned out to be."""
     if workspace.kind == WORKTREE:
+        refused: WorkspaceError | None = None
         if cli:
             try:
                 api(
@@ -337,12 +338,14 @@ def remove(workspace: Workspace, cli: Path | None, force: bool = False) -> str:
                 return "banner.wsRemovedByOpencode"
             except ForceRequired:
                 raise  # opencode wants to be asked twice, and it is in a better position to answer than we are
-            except WorkspaceError:
+            except WorkspaceError as error:
                 # A folder that is gone leaves a row opencode can no longer reach. Its work can
                 # not be lost by removing the row, which is the only way to clear such a stuck entry.
+                refused = error
                 if workspace.exists:
                     raise
-        _forget_worktree(workspace)
+        if not _forget_worktree(workspace) and refused:
+            raise refused  # nothing of ours was deleted, so the answer of opencode is the whole story
         return "banner.wsForgotten"
     _archive_project(workspace)
     return "banner.wsArchived"
@@ -361,17 +364,31 @@ def unarchive(workspace: Workspace) -> None:
         database.close()
 
 
-def _forget_worktree(workspace: Workspace) -> None:
-    """Remove the saved pointer to a worktree without touching the folder itself."""
+def _forget_worktree(workspace: Workspace) -> bool:
+    """Remove the saved pointer to a worktree without touching the folder itself; True if there was one.
+
+    A path is served the way a path is spelled on its system while opencode keeps it in its
+    database with forward slashes, so the row is looked for by its normalised form and deleted
+    under the spelling it is actually stored with.
+    """
     database = _writable()
+    forgotten = False
     try:
-        database.execute(
-            "delete from worktree where project_id = ? and directory = ?",
-            (workspace.project_id, workspace.directory),
-        )
+        wanted = normalize(workspace.directory)
+        stored = database.execute(
+            "select directory from worktree where project_id = ?", (workspace.project_id,)
+        ).fetchall()
+        for row in stored:
+            if normalize(row[0]) != wanted:
+                continue
+            database.execute(
+                "delete from worktree where project_id = ? and directory = ?", (workspace.project_id, row[0])
+            )
+            forgotten = True
         database.commit()
     finally:
         database.close()
+    return forgotten
 
 
 def _archive_project(workspace: Workspace) -> None:

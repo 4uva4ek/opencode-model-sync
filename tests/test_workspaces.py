@@ -242,6 +242,36 @@ def test_a_stuck_worktree_is_still_gone_when_opencode_cannot_reach_it(storage, m
     assert "C:/work/gone/.wt/stale" not in rows
 
 
+def test_a_row_of_ours_is_found_whatever_way_its_path_is_spelled(storage, monkeypatch):
+    """The bug of the live page: opencode serves E:\\work\\x, its database keeps E:/work/x."""
+
+    def refusing(cli, method, path, body=None, timeout=30.0):
+        raise workspaces.WorkspaceError(f"Worktree directory unavailable: {body['directory']}")
+
+    monkeypatch.setattr(workspaces, "api", refusing)
+    served = workspaces.Workspace(
+        project_id="p2", directory="C:\\work\\gone\\.wt\\stale", kind=workspaces.WORKTREE, strategy="git"
+    )
+    assert not served.exists
+
+    assert workspaces.remove(served, cli="opencode") == "banner.wsForgotten"
+    connection = sqlite3.connect(storage / "opencode.db")
+    rows = directories(connection)
+    connection.close()
+    assert "C:/work/gone/.wt/stale" not in rows
+
+
+def test_a_refusal_with_nothing_of_ours_to_delete_is_told_and_not_glossed_over(storage, monkeypatch):
+    def refusing(cli, method, path, body=None, timeout=30.0):
+        raise workspaces.WorkspaceError("Worktree directory unavailable: C:/work/never/listed")
+
+    monkeypatch.setattr(workspaces, "api", refusing)
+    item = workspaces.Workspace(project_id="p2", directory="C:/work/never/listed", kind=workspaces.WORKTREE)
+
+    with pytest.raises(workspaces.WorkspaceError, match="unavailable"):
+        workspaces.remove(item, cli="opencode")
+
+
 def test_opencode_being_asked_for_permission_is_not_answered_for(storage, monkeypatch):
     def refuse(cli, method, path, body=None, timeout=30.0):
         raise workspaces.ForceRequired("changes of its own")
