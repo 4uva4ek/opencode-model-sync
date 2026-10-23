@@ -86,20 +86,7 @@ def style_sheet(p: Palette, check: str) -> str:
 }}
 QMainWindow, #content {{ background: {p.window}; }}
 #sidebar {{ background: {p.sidebar}; border-right: 1px solid {p.border}; }}
-#tabStrip {{ background: {p.sidebar}; border-bottom: 1px solid {p.border}; }}
 QToolTip {{ background: {p.surface}; color: {p.text}; border: 1px solid {p.border}; padding: 6px 8px; border-radius: 6px; }}
-
-QTabBar#tabs {{ background: transparent; }}
-QTabBar#tabs::tab {{
-    background: transparent;
-    color: {p.muted};
-    border: 1px solid transparent;
-    border-radius: 9px;
-    padding: 7px 14px;
-    font-weight: 600;
-}}
-QTabBar#tabs::tab:hover {{ color: {p.text}; background: {p.surface_hover}; }}
-QTabBar#tabs::tab:selected {{ color: {p.text}; background: {p.surface}; border-color: {p.border}; }}
 
 #brand {{ font-size: 16px; font-weight: 700; }}
 #brandSub {{ color: {p.faint}; font-size: 12px; }}

@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
-    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -36,6 +35,7 @@ from .agents_view import AgentDialog, AgentsPanel, ModelList, TeamDialog
 from .config import ConfigError, OpencodeConfig, Provider, config_path
 from .discovery import Discovery, ModelRow, RemoteModel, Suggestion
 from .i18n import tr
+from .tabs import TabBar, TabStrip, fade_in
 from .widgets import ElidedLabel, button, label, pill, repolish, scrolled, tokens
 from .workspaces_view import WorkspacesPanel
 
@@ -357,38 +357,36 @@ class MainWindow(QMainWindow):
         self.content_layout.setContentsMargins(28, 24, 28, 22)
         self.content_layout.setSpacing(14)
 
-        providers = QWidget()
-        providers_layout = QHBoxLayout(providers)
-        providers_layout.setContentsMargins(0, 0, 0, 0)
-        providers_layout.setSpacing(0)
-        providers_layout.addWidget(self.sidebar)
-        providers_layout.addWidget(self.content, 1)
-
         self.workspaces_page = QWidget()
+        self.workspaces_page.setObjectName("content")
         self.workspaces_layout = QVBoxLayout(self.workspaces_page)
         self.workspaces_layout.setContentsMargins(28, 24, 28, 22)
         self.workspaces_layout.setSpacing(14)
 
-        self.tabs = QTabBar()
-        self.tabs.setObjectName("tabs")
-        self.tabs.setExpanding(False)
-        self.tabs.setDrawBase(False)
-        self.tabs.setMovable(False)
+        self.tabs = TabBar()
         self.tabs.addTab("")
         self.tabs.addTab("")
         self.tabs.currentChanged.connect(self._show_tab)
 
         self.stack = QStackedWidget()
-        self.stack.addWidget(providers)
+        self.stack.addWidget(self.content)
         self.stack.addWidget(self.workspaces_page)
 
+        # The tabs, the notices and the page travel together, so a tab sits over the page it opens.
+        pages = QWidget()
+        pages_layout = QVBoxLayout(pages)
+        pages_layout.setContentsMargins(0, 0, 0, 0)
+        pages_layout.setSpacing(0)
+        pages_layout.addWidget(TabStrip(self.tabs))
+        pages_layout.addWidget(self._banner_slot(), 0)
+        pages_layout.addWidget(self.stack, 1)
+
         root = QWidget()
-        layout = QVBoxLayout(root)
+        layout = QHBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._tab_strip())
-        layout.addWidget(self._banner_slot(), 0)
-        layout.addWidget(self.stack, 1)
+        layout.addWidget(self.sidebar)
+        layout.addWidget(pages, 1)
         self.setCentralWidget(root)
 
         # opencode or the user may edit the config while the window is open.
@@ -845,16 +843,6 @@ class MainWindow(QMainWindow):
         layout.addLayout(bottom)
         return sidebar
 
-    def _tab_strip(self) -> QWidget:
-        strip = QWidget()
-        strip.setObjectName("tabStrip")
-        row = QHBoxLayout(strip)
-        row.setContentsMargins(20, 12, 20, 0)
-        row.setSpacing(8)
-        row.addWidget(self.tabs)
-        row.addStretch(1)
-        return strip
-
     def _banner_slot(self) -> QWidget:
         """The one banner of the window, above both tabs."""
         holder = QWidget()
@@ -870,7 +858,10 @@ class MainWindow(QMainWindow):
 
     def _show_tab(self, index: int) -> None:
         self.tab = "workspaces" if index == 1 else "providers"
+        # The provider list has no bearing on workspaces, and the paths want the width.
+        self.sidebar.setVisible(index == 0)
         self.stack.setCurrentIndex(index)
+        fade_in(self.stack.currentWidget())
         if self.tab == "workspaces" and not self.ws_loaded:
             self.refresh_workspaces()
 

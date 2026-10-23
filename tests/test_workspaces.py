@@ -372,10 +372,12 @@ def test_the_workspaces_tab_opens_with_the_list_of_opencode(view):
     assert widget.tab == "workspaces"
     assert widget.stack.currentIndex() == 1
     assert [item.directory for item in listed(widget)] == [item.directory for item in items]
-    # The providers tab still holds everything the app did before.
-    assert widget.stack.widget(0).layout().indexOf(widget.sidebar) == 0
+    # The provider list waits on the first tab, leaving the paths the whole width.
+    assert widget.stack.widget(0) is widget.content
+    assert not widget.sidebar.isVisibleTo(widget)
     widget._show_tab(0)
     assert widget.stack.currentIndex() == 0 and widget.tab == "providers"
+    assert widget.sidebar.isVisibleTo(widget)
 
 
 def test_excluding_takes_a_row_off_this_list_only(view):
