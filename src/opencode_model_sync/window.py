@@ -550,6 +550,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         ident, name, url, key = dialog.values()
+        self._show_providers()  # the new provider wants to be looked at, not added behind a tab
         models = dialog.result_models if dialog.add_models.isChecked() else []
 
         def work() -> None:
@@ -858,8 +859,6 @@ class MainWindow(QMainWindow):
 
     def _show_tab(self, index: int) -> None:
         self.tab = "workspaces" if index == 1 else "providers"
-        # The provider list has no bearing on workspaces, and the paths want the width.
-        self.sidebar.setVisible(index == 0)
         self.stack.setCurrentIndex(index)
         fade_in(self.stack.currentWidget())
         if self.tab == "workspaces" and not self.ws_loaded:
@@ -916,13 +915,19 @@ class MainWindow(QMainWindow):
                 card.added.connect(self.add_provider)
                 self.suggestion_box.addWidget(card)
 
+    def _show_providers(self) -> None:
+        """Whatever the sidebar opens belongs to the first tab, so it brings that tab along."""
+        self.tabs.setCurrentIndex(0)
+
     def _select(self, provider_id: str) -> None:
         self.selected = provider_id
         self.page = "models"
+        self._show_providers()
         self.render()
 
     def _open_agents(self) -> None:
         self.page = "agents"
+        self._show_providers()
         self.render()
 
     def render_content(self) -> None:

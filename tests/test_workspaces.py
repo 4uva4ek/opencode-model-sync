@@ -372,9 +372,9 @@ def test_the_workspaces_tab_opens_with_the_list_of_opencode(view):
     assert widget.tab == "workspaces"
     assert widget.stack.currentIndex() == 1
     assert [item.directory for item in listed(widget)] == [item.directory for item in items]
-    # The provider list waits on the first tab, leaving the paths the whole width.
+    # The provider list stays put, so the page never slides out from under the tabs.
     assert widget.stack.widget(0) is widget.content
-    assert not widget.sidebar.isVisibleTo(widget)
+    assert widget.sidebar.isVisibleTo(widget)
     widget._show_tab(0)
     assert widget.stack.currentIndex() == 0 and widget.tab == "providers"
     assert widget.sidebar.isVisibleTo(widget)
@@ -406,6 +406,40 @@ def test_a_row_offers_both_actions_and_marks_a_folder_that_is_gone(view):
     assert window.tr("ws.remove") in buttons
     assert window.tr("ws.missing") in [child.text() for child in row.findChildren(QLabel)]
     assert window.tr("ws.worktree") in [child.text() for child in row.findChildren(QLabel)]
+
+
+def test_a_narrow_row_gives_its_tags_away_before_its_buttons(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    item = workspaces.Workspace(
+        project_id="p",
+        directory=str(tmp_path / "a-folder-with-a-name-long-enough-to-run-out-of-room"),
+        kind=workspaces.WORKTREE,
+        strategy="git",
+        sessions=4,
+    )
+    row = workspaces_view.WorkspaceRow(item, False, False, False)
+    row.show()
+    ours = [name for name in workspaces_view.TAGS_THAT_YIELD if name in dict(row._tags)]
+    kept = {}
+    try:
+        for width in (1100, 830, 700, 600, 520):
+            row.resize(width, 60)
+            app.processEvents()
+            kept[width] = {name for name, tag in row._tags if tag.isVisible()}
+            for name, tag in row._tags:
+                assert not tag.isVisible() or tag.width() >= tag.sizeHint().width(), "half a tag is worse than none"
+            assert row.findChildren(QPushButton)[-1].geometry().right() <= row.width(), "the buttons stay on the row"
+    finally:
+        row.close()
+        row.deleteLater()
+        app.processEvents()
+
+    assert kept[1100] == set(ours), "a wide page has room for every tag"
+    assert not kept[520], "a page as narrow as it gets keeps none of them"
+    for shown in kept.values():
+        first = min([ours.index(name) for name in shown], default=len(ours))
+        assert shown == set(ours[first:]), "tags give up their place in order, with no holes left behind"
+    assert all("missing" in shown for shown in kept.values() if shown), "a folder that is gone holds on last"
 
 
 def test_a_cancelled_question_starts_nothing(view, monkeypatch):

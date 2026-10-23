@@ -34,6 +34,8 @@ def label(text: str = "", name: str | None = None, wrap: bool = False) -> QLabel
 class ElidedLabel(QLabel):
     """A label that shortens its text with an ellipsis instead of widening its parent."""
 
+    FLOOR = 30  # the narrowest it will go: enough for a couple of letters and the ellipsis
+
     def __init__(self, text: str, name: str | None = None, mode: Qt.TextElideMode = Qt.TextElideMode.ElideRight) -> None:
         super().__init__()
         self.full = text
@@ -41,17 +43,35 @@ class ElidedLabel(QLabel):
         if name:
             self.setObjectName(name)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.setMinimumWidth(30)
+        self.setMinimumWidth(self.FLOOR)
         self.setToolTip(text)
         self.setText(text)
+
+    def minimumSizeHint(self) -> QSize:
+        """A label that can shorten must not be the reason its row is too wide to fit."""
+        return QSize(self.FLOOR, super().minimumSizeHint().height())
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.setText(self.fontMetrics().elidedText(self.full, self.mode, self.width()))
 
 
-def pill(text: str, tone: str) -> QLabel:
-    widget = label(text, "pill")
+class TagLabel(QLabel):
+    """A tag that hands its room back to its row instead of being the reason the row is too wide."""
+
+    yields = False  # only rows that hide their tags when they run short of width ask for this
+
+    def minimumSizeHint(self) -> QSize:
+        if not self.yields:
+            return super().minimumSizeHint()
+        return QSize(0, super().minimumSizeHint().height())
+
+
+def pill(text: str, tone: str, yields: bool = False) -> QLabel:
+    """A small tag; a yielding one is given up by its row whole, never cut short."""
+    widget = TagLabel(text)
+    widget.yields = yields
+    widget.setObjectName("pill")
     widget.setProperty("tone", tone)
     widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     return widget

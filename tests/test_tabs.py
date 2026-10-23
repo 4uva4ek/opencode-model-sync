@@ -100,21 +100,32 @@ def test_the_strip_line_stops_where_the_tab_opens(view):
     assert image.pixelColor(under_tab).name() == theme.current().window
 
 
-def test_moving_to_the_other_tab_shows_workspaces_and_frees_the_width(view):
+def test_switching_tabs_does_not_move_anything_sideways(view):
     widget, app, opened = view
+    strip_before = strip_of(widget).geometry()
+    stack_before = widget.stack.geometry()
     widget.tabs.setCurrentIndex(1)
     spin(app)
     assert widget.stack.currentIndex() == 1
     assert widget.tab == "workspaces"
-    assert not widget.sidebar.isVisibleTo(widget)
     assert opened == ["workspaces"]
+    assert strip_of(widget).geometry() == strip_before, "the strip does not slide when the tab changes"
+    assert widget.stack.geometry() == stack_before, "nor does the page"
+    assert widget.sidebar.isVisibleTo(widget)
     widget.tabs.setCurrentIndex(1)
     spin(app)
     assert opened == ["workspaces"], "the list is asked for once, not on every click"
-    widget.tabs.setCurrentIndex(0)
+
+
+def test_the_sidebar_takes_you_back_to_the_page_it_points_at(view):
+    widget, app, _ = view
+    widget.tabs.setCurrentIndex(1)
     spin(app)
-    assert widget.sidebar.isVisibleTo(widget)
+    widget._open_agents()
+    spin(app)
+    assert widget.tabs.currentIndex() == 0
     assert widget.stack.currentIndex() == 0
+    assert widget.page == "agents"
 
 
 def test_the_highlight_glides_across_instead_of_jumping(view):
