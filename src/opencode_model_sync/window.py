@@ -42,6 +42,9 @@ from .workspaces_view import WorkspacesPanel
 # opencode wants to be told twice before it drops a worktree that holds changes.
 FORCE_NEEDED = "force"
 
+# The column of providers, and the left end of the tab strip above it, are the same width.
+SIDEBAR_WIDTH = 280
+
 
 def host(url: str | None) -> str:
     parsed = urlparse(url or "")
@@ -372,21 +375,30 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.content)
         self.stack.addWidget(self.workspaces_page)
 
-        # The tabs, the notices and the page travel together, so a tab sits over the page it opens.
+        # The strip runs the whole width at the top of the window and the sidebar sits under it, so
+        # nothing moves sideways when the tab changes; the brand keeps the tabs over the page.
         pages = QWidget()
         pages_layout = QVBoxLayout(pages)
         pages_layout.setContentsMargins(0, 0, 0, 0)
         pages_layout.setSpacing(0)
-        pages_layout.addWidget(TabStrip(self.tabs))
         pages_layout.addWidget(self._banner_slot(), 0)
         pages_layout.addWidget(self.stack, 1)
 
+        below = QWidget()
+        below_layout = QHBoxLayout(below)
+        below_layout.setContentsMargins(0, 0, 0, 0)
+        below_layout.setSpacing(0)
+        below_layout.addWidget(self.sidebar)
+        below_layout.addWidget(pages, 1)
+
+        self.strip = TabStrip(self.tabs, self._brand())
+
         root = QWidget()
-        layout = QHBoxLayout(root)
+        layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self.sidebar)
-        layout.addWidget(pages, 1)
+        layout.addWidget(self.strip)
+        layout.addWidget(below, 1)
         self.setCentralWidget(root)
 
         # opencode or the user may edit the config while the window is open.
@@ -794,27 +806,32 @@ class MainWindow(QMainWindow):
 
     # ---- rendering
 
+    def _brand(self) -> QWidget:
+        """The logo and the name, in the left end of the tab strip, as wide as the sidebar under it."""
+        brand = QWidget()
+        brand.setFixedWidth(SIDEBAR_WIDTH)  # the tabs start where the page under the strip starts
+        header = QHBoxLayout(brand)
+        header.setContentsMargins(20, 0, 12, 0)
+        header.setSpacing(10)
+
+        mark = QLabel()
+        mark.setPixmap(icons.logo().pixmap(34, 34))
+        header.addWidget(mark, 0, Qt.AlignmentFlag.AlignVCenter)
+        text = QVBoxLayout()
+        text.setSpacing(0)
+        text.addWidget(label("Model Sync", "brand"))
+        self.brand_sub = label(tr("app.brandSub"), "brandSub")
+        text.addWidget(self.brand_sub)
+        header.addLayout(text, 1)
+        return brand
+
     def _build_sidebar(self) -> QWidget:
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(280)
+        sidebar.setFixedWidth(SIDEBAR_WIDTH)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(14, 20, 14, 16)
+        layout.setContentsMargins(14, 16, 14, 16)
         layout.setSpacing(6)
-
-        logo = QLabel()
-        logo.setPixmap(icons.logo().pixmap(34, 34))
-        brand = QVBoxLayout()
-        brand.setSpacing(0)
-        brand.addWidget(label("Model Sync", "brand"))
-        self.brand_sub = label(tr("app.brandSub"), "brandSub")
-        brand.addWidget(self.brand_sub)
-        header = QHBoxLayout()
-        header.setContentsMargins(6, 0, 0, 10)
-        header.setSpacing(10)
-        header.addWidget(logo)
-        header.addLayout(brand, 1)
-        layout.addLayout(header)
 
         self.providers_label = label(tr("sidebar.providers"), "sectionLabel")
         layout.addWidget(self.providers_label)

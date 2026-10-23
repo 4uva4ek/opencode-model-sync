@@ -56,10 +56,25 @@ def strip_of(widget):
     return widget.tabs.parentWidget()
 
 
-def test_the_tabs_sit_over_the_page_they_open(view):
+def left_of(widget, child):
+    """Where a widget begins, counted from the window rather than from the widget holding it."""
+    return child.mapTo(widget, QPoint(0, 0))
+
+
+def test_the_strip_runs_along_the_top_and_the_page_follows_it(view):
     widget, _, _ = view
     strip = strip_of(widget)
-    assert strip.geometry().bottom() + 1 == widget.stack.geometry().top()
+    assert strip.geometry().top() == 0
+    assert strip.width() == widget.width(), "the strip goes over the sidebar as well as the page"
+    place = left_of(widget, strip)
+    assert place.y() + strip.height() == left_of(widget, widget.stack).y(), "the page starts where the strip ends"
+    assert widget.sidebar.isVisibleTo(widget)
+    assert left_of(widget, widget.sidebar).y() == strip.height(), "and the sidebar sits under the strip too"
+
+
+def test_the_tabs_stand_over_the_page_they_open(view):
+    widget, _, _ = view
+    assert left_of(widget, widget.tabs).x() == left_of(widget, widget.stack).x(), "a tab opens into the page, not the sidebar"
 
 
 def test_the_chosen_tab_reaches_down_into_its_page(view):
@@ -69,7 +84,7 @@ def test_the_chosen_tab_reaches_down_into_its_page(view):
     # The tab stands on the bottom edge of the strip rather than stopping short of it.
     assert opening.bottom() == pytest.approx(bar.height())
     seam = bar.mapTo(widget, QPoint(int(opening.center().x()), int(opening.bottom())))
-    assert seam.y() == widget.stack.geometry().top()
+    assert seam.y() == left_of(widget, widget.stack).y()
 
 
 def test_the_tab_is_cut_from_the_same_sheet_as_its_page(view):
@@ -103,14 +118,14 @@ def test_the_strip_line_stops_where_the_tab_opens(view):
 def test_switching_tabs_does_not_move_anything_sideways(view):
     widget, app, opened = view
     strip_before = strip_of(widget).geometry()
-    stack_before = widget.stack.geometry()
+    page_before = left_of(widget, widget.stack)
     widget.tabs.setCurrentIndex(1)
     spin(app)
     assert widget.stack.currentIndex() == 1
     assert widget.tab == "workspaces"
     assert opened == ["workspaces"]
     assert strip_of(widget).geometry() == strip_before, "the strip does not slide when the tab changes"
-    assert widget.stack.geometry() == stack_before, "nor does the page"
+    assert left_of(widget, widget.stack) == page_before, "nor does the page"
     assert widget.sidebar.isVisibleTo(widget)
     widget.tabs.setCurrentIndex(1)
     spin(app)

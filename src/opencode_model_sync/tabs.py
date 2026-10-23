@@ -153,15 +153,22 @@ class TabBar(QTabBar):
 
 
 class TabStrip(QWidget):
-    """The bar the tabs sit in. The line along its bottom stops where a tab opens into its page."""
+    """The bar the tabs sit in, along the whole top of the window.
 
-    def __init__(self, tabs: TabBar) -> None:
+    The line along its bottom stops where a tab opens into its page. Whatever is given as the brand
+    takes the left end, over the sidebar, so the tabs can start where the page starts.
+    """
+
+    def __init__(self, tabs: TabBar, brand: QWidget | None = None) -> None:
         super().__init__()
         self.setObjectName("tabStrip")
         self.tabs = tabs
         row = QHBoxLayout(self)
-        row.setContentsMargins(20, 10, 20, 0)
-        row.addWidget(tabs, 1)
+        row.setContentsMargins(0, 10, 20, 0)
+        row.setSpacing(0)
+        if brand is not None:
+            row.addWidget(brand, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(tabs, 1, Qt.AlignmentFlag.AlignBottom)
 
     def paintEvent(self, event) -> None:
         palette = theme.current()
