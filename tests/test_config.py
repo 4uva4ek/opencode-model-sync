@@ -3,7 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from opencode_model_sync.config import ConfigError, OpencodeConfig, config_dir, config_path, strip_jsonc
+from opencode_model_sync.config import (
+    ConfigError,
+    OpencodeConfig,
+    config_dir,
+    config_path,
+    configured_enabled,
+    strip_jsonc,
+)
 
 
 def write(path: Path, data: dict) -> Path:
@@ -87,17 +94,18 @@ def test_save_backs_up_once_and_keeps_other_keys(tmp_path):
     assert json.loads(path.read_text())["theme"] == "dark"
 
 
-def test_add_provider_uses_legacy_openai_compatible_shape(tmp_path):
+def test_add_provider_uses_the_current_openai_compatible_shape(tmp_path):
     config = OpencodeConfig.load(tmp_path / "opencode.json")
-    config.add_provider("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1/", None)
+    config.add_provider("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1/", "secret")
     config.save()
     saved = json.loads((tmp_path / "opencode.json").read_text())
-    assert saved["provider"]["lmstudio"] == {
-        "npm": "@ai-sdk/openai-compatible",
+    assert saved["providers"]["lmstudio"] == {
+        "package": "aisdk:@ai-sdk/openai-compatible",
         "name": "LM Studio",
-        "options": {"baseURL": "http://127.0.0.1:1234/v1"},
+        "settings": {"baseURL": "http://127.0.0.1:1234/v1", "apiKey": "secret"},
         "models": {},
     }
+    assert "provider" not in saved, "a new provider has no reason to start in the legacy map"
     with pytest.raises(ConfigError):
         config.add_provider("lmstudio", "again", "http://x", None)
     with pytest.raises(ConfigError):
@@ -150,6 +158,132 @@ def test_configured_tools_reads_both_shapes():
     assert configured_tools({"tool_call": False}) is False
     assert configured_tools({"capabilities": {"tools": True}}) is True
     assert configured_tools({"name": "x"}) is None
+
+
+def test_switching_a_model_off_leaves_the_mark_opencode_reads(tmp_path):
+    """Only ``disabled`` in the current map keeps a model out of the list opencode works from."""
+    path = write(
+        tmp_path / "opencode.json",
+        {
+            "providers": {
+                "local": {
+                    "package": "aisdk:@ai-sdk/openai-compatible",
+                    "settings": {"baseURL": "http://h/v1"},
+                    "models": {"on": {}, "off": {"disabled": True, "capabilities": {"tools": True}}},
+                }
+            }
+        },
+    )
+    config = OpencodeConfig.load(path)
+    models = config.provider("local").models
+    assert configured_enabled(models["on"], "providers")
+    assert not configured_enabled(models["off"], "providers")
+
+    assert not config.set_model_enabled("local", "on", False), "nothing moved: the provider is already home"
+    assert not config.set_model_enabled("local", "off", True)
+    config.save()
+
+    saved = json.loads(path.read_text())["providers"]["local"]["models"]
+    assert saved["on"] == {"disabled": True}
+    assert saved["off"] == {"capabilities": {"tools": True}}, "switching on clears the mark and leaves the rest alone"
+    with pytest.raises(ConfigError):
+        config.set_model_enabled("local", "unknown", True)
+
+
+def test_each_map_has_its_own_word_for_a_model_it_does_not_offer():
+    """Measured on opencode 2.1.4, both against his own model server: the legacy map obeys
+    ``status: deprecated`` and reads a ``disabled`` as nothing, the current map the other way round."""
+    assert not configured_enabled({"status": "deprecated"}, "provider")
+    assert configured_enabled({"disabled": True}, "provider"), "the mark would be read as nothing there"
+    assert not configured_enabled({"disabled": True}, "providers")
+    assert configured_enabled({"status": "deprecated"}, "providers"), "the old word means nothing here"
+
+
+def test_switching_a_deprecated_model_on_leaves_the_legacy_map_alone(tmp_path):
+    """The old word is honoured where it stands, so taking it away does not need a move."""
+    path = write(
+        tmp_path / "opencode.json",
+        {"provider": {"local": {**LEGACY_MAC, "models": {"old": {"status": "deprecated", "name": "Old"}}}}},
+    )
+    config = OpencodeConfig.load(path)
+
+    assert not config.set_model_enabled("local", "old", True)
+    config.save()
+
+    saved = json.loads(path.read_text())
+    assert list(saved) == ["provider"], "the provider keeps the map opencode already reads from it"
+    assert saved["provider"]["local"]["models"]["old"] == {"name": "Old"}
+
+
+def test_moving_a_provider_carries_its_own_word_for_off_as_the_new_one(tmp_path):
+    path = write(
+        tmp_path / "opencode.json",
+        {
+            "provider": {
+                "local": {**LEGACY_MAC, "models": {"old": {"status": "deprecated"}, "live": {}}}
+            }
+        },
+    )
+    config = OpencodeConfig.load(path)
+
+    assert config.set_model_enabled("local", "live", False)
+    config.save()
+
+    models = json.loads(path.read_text())["providers"]["local"]["models"]
+    assert models["old"] == {"disabled": True}, "a model opencode was told away from stays away"
+    assert models["live"] == {"disabled": True}
+
+
+def test_switching_a_model_off_moves_its_provider_where_opencode_reads_the_mark(tmp_path):
+    """Measured on opencode 2.1.4: a ``disabled`` of the legacy map is read as nothing at all,
+    and a half-written entry of the current map leaves the provider without its server. So the
+    whole definition travels over, in the words the current map uses."""
+    path = write(
+        tmp_path / "opencode.json",
+        {
+            "provider": {
+                "local": {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": "Local",
+                    "options": {"baseURL": "http://h/v1", "apiKey": "k", "timeout": 30},
+                    "models": {"on": {"tool_call": False, "limit": {"context": 100, "output": 50}}, "off": {}},
+                }
+            },
+            "model": "local/on",
+        },
+    )
+    config = OpencodeConfig.load(path)
+    assert config.set_model_enabled("local", "off", False)
+    config.save()
+
+    saved = json.loads(path.read_text())
+    assert "provider" not in saved, "and it does not stay behind to be read as the truth"
+    assert saved["model"] == "local/on", "the rest of the config is not touched"
+    assert saved["providers"]["local"] == {
+        "name": "Local",
+        "package": "aisdk:@ai-sdk/openai-compatible",
+        "settings": {"baseURL": "http://h/v1", "apiKey": "k", "timeout": 30},
+        "models": {
+            "on": {"capabilities": {"tools": False}, "limit": {"context": 100, "output": 50}},
+            "off": {"disabled": True},
+        },
+    }
+
+
+def test_a_provider_holding_a_key_the_current_map_has_no_place_for_is_left_where_it_is(tmp_path):
+    """Refusing to switch is better than rewriting a provider out of its own settings."""
+    path = write(
+        tmp_path / "opencode.json",
+        {"provider": {"local": {**LEGACY_MAC, "whitelist": ["one"]}}, "providers": {"other": LEGACY_MAC}},
+    )
+    before = path.read_text()
+    config = OpencodeConfig.load(path)
+
+    with pytest.raises(ConfigError, match="whitelist"):
+        config.set_model_enabled("local", "qwen3.8:27b-mlx", False)
+
+    assert path.read_text() == before, "the file is left alone, and so is the other provider"
+    assert config.provider("local").section == "provider"
 
 
 @pytest.mark.parametrize("section", ["provider", "providers"])

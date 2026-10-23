@@ -156,6 +156,8 @@ QPushButton#link:hover {{ color: {p.accent_hover}; text-decoration: underline; }
 #modelRow {{ border-bottom: 1px solid {p.border}; }}
 #modelRow[last="true"] {{ border-bottom: none; }}
 #modelName {{ font-weight: 600; }}
+/* A model opencode has been told not to offer reads as a name that is put away. */
+#modelRow[off="true"] #modelName {{ color: {p.muted}; }}
 
 QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 4px; border: 1px solid {p.faint}; background: transparent; }}
 QCheckBox::indicator:checked {{ background: {p.accent}; border-color: {p.accent}; image: url({check}); }}

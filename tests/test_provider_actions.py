@@ -77,6 +77,43 @@ def test_cancel_and_empty_rename_do_not_write(view, monkeypatch):
     assert not widget.busy
 
 
+def rows_of(widget):
+    return {row.row.id: row for row in widget.findChildren(window.ModelRowWidget)}
+
+
+def test_the_switch_in_a_row_moves_the_mark_opencode_reads(view):
+    """The point of the button: one click instead of opening the settings of opencode."""
+    widget, path = view
+    path.write_text(
+        json.dumps({"provider": {"local": {
+            "name": "Local",
+            "npm": "@ai-sdk/openai-compatible",
+            "options": {"baseURL": "http://localhost:1234/v1"},
+            # The old map is switched off by its own word, and a stray ``disabled`` of it is nothing.
+            "models": {"on": {"tool_call": True}, "off": {"status": "deprecated"}},
+        }}})
+    )
+    widget._reload_config()
+    widget.render()
+
+    rows = rows_of(widget)
+    assert rows["on"].model_switch.text() == i18n.tr("row.on")
+    assert rows["off"].model_switch.text() == i18n.tr("row.off")
+
+    rows["on"].model_switch.click()  # off: the provider moves, and the mark goes with it
+    rows_of(widget)["off"].model_switch.click()  # on: only the mark leaves the entry
+    saved = json.loads(path.read_text())
+    assert list(saved["providers"]["local"]["models"]) == ["on", "off"]
+    assert saved["providers"]["local"]["models"]["on"] == {"capabilities": {"tools": True}, "disabled": True}
+    assert saved["providers"]["local"]["models"]["off"] == {}
+    assert "provider" not in saved
+
+    widget.render()
+    rows = rows_of(widget)
+    assert rows["on"].model_switch.text() == i18n.tr("row.off"), "the row says what it became"
+    assert rows["off"].model_switch.text() == i18n.tr("row.on")
+
+
 @pytest.mark.parametrize("language", ["en", "ru"])
 def test_provider_menu_is_translated_and_disabled_during_save(view, language):
     widget, _ = view

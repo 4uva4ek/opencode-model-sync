@@ -165,12 +165,15 @@ class SuggestionCard(QFrame):
 class ModelRowWidget(QFrame):
     toggled = Signal()
     tools_toggled = Signal(str, bool)
+    enabled_toggled = Signal(str, bool)
 
     def __init__(self, row: ModelRow, checked: bool, last: bool) -> None:
         super().__init__()
         self.row = row
         self.setObjectName("modelRow")
         self.setProperty("last", last)
+        self.setProperty("off", not row.enabled)
+        self.model_switch: QPushButton | None = None  # only a model in the config can be switched
         self.check = QCheckBox()
         self.check.setCursor(Qt.CursorShape.PointingHandCursor)
         self.check.setChecked(checked)
@@ -193,6 +196,21 @@ class ModelRowWidget(QFrame):
             chip.setToolTip(tr("row.context", count=f"{remote.context:,}".replace(",", " ")))
             layout.addWidget(chip)
         if row.in_config:
+            # The switch opencode's own settings have: off means it neither offers nor runs the model.
+            on = row.enabled
+            switch = QPushButton(tr("row.on") if on else tr("row.off"))
+            switch.setObjectName("pill")
+            switch.setProperty("tone", "muted" if on else "warning")
+            switch.setCursor(Qt.CursorShape.PointingHandCursor)
+            switch.setToolTip(
+                (tr("row.onHint") + "\n" + tr("row.onToggle"))
+                if on
+                else (tr("row.offHint") + "\n" + tr("row.offToggle"))
+            )
+            switch.clicked.connect(lambda: self.enabled_toggled.emit(row.id, not on))
+            self.model_switch = switch
+            layout.addWidget(switch)
+
             # opencode treats a model without an explicit setting as able to call tools.
             enabled = row.tools is not False
             toggle = QPushButton(tr("row.tools") if enabled else tr("row.noTools"))
@@ -548,6 +566,19 @@ class MainWindow(QMainWindow):
 
         self._run_write(work, tr("banner.toolsOn" if enabled else "banner.toolsOff", model=model_id))
 
+    def set_enabled(self, provider_id: str, model_id: str, enabled: bool) -> None:
+        provider = self.config.provider(provider_id)
+        title = provider.title if provider else provider_id
+
+        def work() -> str | None:
+            config = OpencodeConfig.load(self.config_file)
+            moved = config.set_model_enabled(provider_id, model_id, enabled)
+            config.save()
+            # A provider that changed section is worth saying out loud: the config looks different now.
+            return tr("banner.modelOffMoved", model=model_id, provider=title) if moved and not enabled else None
+
+        self._run_write(work, tr("banner.modelOn" if enabled else "banner.modelOff", model=model_id))
+
     def add_provider(self, preset: Suggestion | None = None) -> None:
         dialog = AddProviderDialog(self, {provider.id for provider in self.config.providers()}, preset)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -789,10 +820,12 @@ class MainWindow(QMainWindow):
         self.busy = True
         self.render()
 
-        def done(_: object) -> None:
+        def done(result: object) -> None:
+            # A write may come back with what it actually did, which the caller could not know.
+            said = result if isinstance(result, str) and result else message
             self.busy = False
-            self.show_banner(message, "success")
-            self.synced.emit(message)
+            self.show_banner(said, "success")
+            self.synced.emit(said)
             if refresh:
                 self.refresh()
             else:
@@ -1074,6 +1107,7 @@ class MainWindow(QMainWindow):
             widget = ModelRowWidget(row, row.id in chosen, index == len(rows) - 1)
             widget.toggled.connect(lambda w=widget, pid=provider.id: self._toggle(pid, w))
             widget.tools_toggled.connect(lambda model, value, pid=provider.id: self.set_tools(pid, model, value))
+            widget.enabled_toggled.connect(lambda model, value, pid=provider.id: self.set_enabled(pid, model, value))
             column.addWidget(widget)
         column.addStretch(1)
         return scrolled(container)

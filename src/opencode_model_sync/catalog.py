@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .config import OpencodeConfig, configured_tools
+from .config import CURRENT, OpencodeConfig, configured_enabled, configured_tools
 
 CATALOG_URL = "https://models.dev/api.json"
 MAX_AGE = 24 * 3600
@@ -148,6 +148,8 @@ def choices(config: OpencodeConfig, refs: list[str], catalog: Mapping[str, Any] 
         provider_id, model_id = ref.split("/", 1)
         provider = providers.get(provider_id)
         entry = provider.models.get(model_id, {}) if provider else {}
+        if not configured_enabled(entry, provider.section if provider else CURRENT):
+            continue  # opencode offers a switched-off model to nobody, so an agent must not be sent to it
         info = _models(catalog.get(provider_id)).get(model_id, {})
         local = _is_local(provider.base_url if provider else None)
         tools = configured_tools(entry)
@@ -176,7 +178,7 @@ def from_config(config: OpencodeConfig) -> list[str]:
         f"{provider.id}/{model_id}"
         for provider in config.providers()
         for model_id, entry in provider.models.items()
-        if entry.get("disabled") is not True
+        if configured_enabled(entry, provider.section)
     ]
 
 

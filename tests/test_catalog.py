@@ -31,8 +31,12 @@ def config(tmp_path: Path) -> OpencodeConfig:
                         "options": {"baseURL": "http://127.0.0.1:1234/v1"},
                         "models": {"qwen-coder": {"name": "Qwen Coder", "tool_call": False, "limit": {"context": 65536, "output": 1}}},
                     },
-                    "remote": {"options": {"baseURL": "https://api.example.com/v1"}, "models": {"m": {}, "off": {"disabled": True}}},
+                    "remote": {
+                        "options": {"baseURL": "https://api.example.com/v1"},
+                        "models": {"m": {}, "off": {"status": "deprecated"}},
+                    },
                 },
+                # Each map is switched off in its own words, which the other map does not read.
                 "providers": {"openrouter": {"models": {"anthropic/claude-x": {"disabled": True}}}},
             }
         ),
@@ -56,6 +60,12 @@ def test_choices_cover_only_connected_models(tmp_path):
 
 def test_from_config_skips_disabled_models(tmp_path):
     assert catalog.from_config(config(tmp_path)) == ["lmstudio/qwen-coder", "remote/m"]
+
+
+def test_a_switched_off_model_is_not_offered_to_an_agent(tmp_path):
+    """``opencode models`` lists such a model, so the config has to have the last word."""
+    refs = ["remote/m", "remote/off", "openrouter/anthropic/claude-x"]
+    assert [item.ref for item in catalog.choices(config(tmp_path), refs, CATALOG)] == ["remote/m"]
 
 
 def test_connected_parses_cli_output(tmp_path):

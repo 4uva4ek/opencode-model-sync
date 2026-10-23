@@ -44,6 +44,13 @@ _TEXT: dict[str, dict[str, str]] = {
         "row.noToolsHint": "The model cannot call tools, so in opencode it can only chat.",
         "row.toolsToggle": "Click to turn tool calling off for this model in opencode.",
         "row.noToolsToggle": "Click to turn tool calling on for this model in opencode.",
+        "row.on": "on",
+        "row.off": "off",
+        "row.onHint": "opencode offers this model: it is in its list and an agent can run on it.",
+        "row.offHint": "opencode does not offer this model: neither its list nor its picker shows it, "
+        "while the model keeps its place and its settings in the config.",
+        "row.onToggle": "Click to switch this model off in opencode.",
+        "row.offToggle": "Click to switch this model on in opencode.",
         "status.new": "New",
         "status.configured": "In config",
         "status.missing": "Not on server",
@@ -72,6 +79,10 @@ _TEXT: dict[str, dict[str, str]] = {
         "banner.saveFailed": "Could not save the config: {error}",
         "banner.toolsOn": "{model}: tool calling is on.",
         "banner.toolsOff": "{model}: tool calling is off.",
+        "banner.modelOn": "{model}: switched on, opencode offers it again.",
+        "banner.modelOff": "{model}: switched off, opencode does not offer it.",
+        "banner.modelOffMoved": "{model}: switched off, opencode does not offer it. {provider} was moved into "
+        "the providers section of the config, which is where opencode reads this switch.",
         "remove.title": "Remove models",
         "remove.text": "Remove the selected models from the opencode config ({count})?",
         "dialog.title": "New provider",
@@ -277,6 +288,8 @@ _TEXT: dict[str, dict[str, str]] = {
         "error.database": "opencode's database cannot be read: {error}",
         "error.forceRequired": "The worktree has changes of its own.",
         "error.opencodeFailed": "opencode refused the request.",
+        "error.cannotMove": "Provider “{id}” holds {keys}, which the providers section has no place for. "
+        "Move the provider into that section by hand, or drop those settings, and switch the model again.",
     },
     "ru": {
         "provider.actions": "Действия с провайдером",
@@ -313,6 +326,13 @@ _TEXT: dict[str, dict[str, str]] = {
         "row.noToolsHint": "Модель не умеет вызывать инструменты, поэтому в opencode сможет только переписываться в чате.",
         "row.toolsToggle": "Нажмите, чтобы выключить вызов инструментов у этой модели в opencode.",
         "row.noToolsToggle": "Нажмите, чтобы включить вызов инструментов у этой модели в opencode.",
+        "row.on": "включена",
+        "row.off": "выключена",
+        "row.onHint": "opencode показывает эту модель: она в его списке, агент может на ней работать.",
+        "row.offHint": "opencode не показывает эту модель: её нет ни в списке, ни в выборе модели, "
+        "но сама она со своими настройками в конфиге остаётся.",
+        "row.onToggle": "Нажмите, чтобы выключить эту модель в opencode.",
+        "row.offToggle": "Нажмите, чтобы включить эту модель в opencode.",
         "status.new": "Новая",
         "status.configured": "В конфиге",
         "status.missing": "Нет на сервере",
@@ -341,6 +361,10 @@ _TEXT: dict[str, dict[str, str]] = {
         "banner.saveFailed": "Не удалось сохранить конфиг: {error}",
         "banner.toolsOn": "{model}: вызов инструментов включён.",
         "banner.toolsOff": "{model}: вызов инструментов выключен.",
+        "banner.modelOn": "{model}: модель включена, opencode снова её предлагает.",
+        "banner.modelOff": "{model}: модель выключена, opencode её не предлагает.",
+        "banner.modelOffMoved": "{model}: модель выключена, opencode её не предлагает. Провайдер «{provider}» "
+        "перенесён в раздел providers — только там opencode читает это переключение.",
         "remove.title": "Удалить модели",
         "remove.text": "Удалить выбранные модели из конфига opencode ({count})?",
         "dialog.title": "Новый провайдер",
@@ -546,6 +570,8 @@ _TEXT: dict[str, dict[str, str]] = {
         "error.database": "Не удалось прочитать базу opencode: {error}",
         "error.forceRequired": "У worktree есть свои изменения.",
         "error.opencodeFailed": "opencode отказал в запросе.",
+        "error.cannotMove": "У провайдера «{id}» есть {keys}, для которых в разделе providers нет места. "
+        "Перенесите провайдера в этот раздел вручную или уберите эти настройки, потом выключайте модель.",
     },
 }
 
