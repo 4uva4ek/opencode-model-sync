@@ -14,6 +14,7 @@ A small desktop app for Linux, macOS (Apple Silicon) and Windows. It asks your m
 - Finds local servers on their default ports that are not in the config yet and offers to add them.
 - The config only changes when you press a button. A backup `opencode.json.bak-model-sync-*` is written next to it before the first change.
 - Rename or remove a provider from its **⋯** menu. Renaming keeps its ID; removing also clears model selections that refer to it.
+- The **Workspaces** tab lists the folders opencode works in and cleans up the rows that are stuck there.
 - Lives in the tray. Light or dark theme follows the system. Russian and English interface.
 
 Models go into the config section where the provider is defined, the legacy `provider` map or the newer `providers` map. If one ID ended up in both, opencode would ignore the legacy entry together with its server address.
@@ -31,6 +32,17 @@ The **Agents and teams** page shows which model each opencode agent runs on and 
 The app looks for the opencode command line on `PATH`, in the install script, npm and bun folders, and inside OpenCode Desktop on Windows, macOS and Linux. If it is somewhere else, set the `OPENCODE_CLI` environment variable to its path. If it cannot be found, the model list comes from the config.
 
 New agents go to the `agent` section, whose format the opencode docs describe. An agent from the newer `agents` section is edited there, but its permission rules are kept as written. Settings the app does not manage, such as `color` or `steps`, are kept.
+
+## Workspaces
+
+The **Workspaces** tab lists the folders opencode works in and the git worktrees made from them, the same list opencode shows in its sidebar. Rows for folders that are no longer on the disk stay there for good, and opencode has no screen to clean them up.
+
+- **Exclude** hides a workspace in this app only. opencode is not touched and the folder stays where it is. "Show excluded" brings the hidden rows back; **Bring back** returns one of them.
+- **Remove** asks opencode itself. A worktree goes away through `DELETE /api/worktree`, removed the way opencode created it; when it holds changes that are not committed, the app asks a second time before dropping those. A project folder is archived in opencode's database, which is how opencode takes it off its own list — the folder and its sessions stay, and opening the folder in opencode shows it again.
+- **Add folder** hands a folder to the running opencode, the same way opening a folder there registers it.
+- A row says whether its folder is still on the disk, whether it is a git worktree, how many sessions opencode has saved for it, and when it was last used. The **⋯** menu opens the folder.
+
+While opencode runs, the list comes from it through `opencode api`; otherwise the same rows are read from `~/.local/share/opencode/opencode.db`. opencode's database is copied to `opencode.db.bak-model-sync-*` before anything is written to it. Which workspaces are excluded is this app's own file, `~/.config/opencode/model-sync-workspaces.json`.
 
 ## Download
 

@@ -35,7 +35,8 @@ def view(tmp_path, monkeypatch):
 
 def action_menu(widget):
     # Rendering replaces widgets with deleteLater; use the current header layout.
-    header = widget.content_layout.itemAt(2).layout()
+    # The content layout is: the top bar, the provider header, the model list, the footer.
+    header = widget.content_layout.itemAt(1).layout()
     return header.itemAt(header.count() - 1).widget().menu()
 
 

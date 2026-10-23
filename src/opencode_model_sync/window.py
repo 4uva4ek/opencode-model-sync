@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import re
 import subprocess
+from pathlib import Path
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QFileSystemWatcher, QDir, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QEnterEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -24,16 +26,22 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStackedWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
 
-from . import agents, catalog, discovery, i18n, icons, tasks, theme
+from . import agents, catalog, discovery, i18n, icons, tasks, theme, workspaces
 from .agents_view import AgentDialog, AgentsPanel, ModelList, TeamDialog
 from .config import ConfigError, OpencodeConfig, Provider, config_path
 from .discovery import Discovery, ModelRow, RemoteModel, Suggestion
 from .i18n import tr
 from .widgets import ElidedLabel, button, label, pill, repolish, tokens
+from .workspaces_view import WorkspacesPanel
+
+# opencode wants to be told twice before it drops a worktree that holds changes.
+FORCE_NEEDED = "force"
 
 
 def host(url: str | None) -> str:
@@ -327,6 +335,16 @@ class MainWindow(QMainWindow):
         self.checked: dict[str, set[str]] = {}
         self.busy = False
         self.page = "models"  # or "agents"
+        self.tab = "providers"  # or "workspaces"
+        # Workspaces of opencode; None while the list is loading.
+        self.ws_items: list[workspaces.Workspace] | None = None
+        self.ws_note = ""
+        self.ws_busy = False
+        self.ws_loaded = False
+        self.excluded: set[str] = set()
+        self.show_excluded = False
+        self.banner = QFrame()
+        self.banner.hide()
         # Connected models as opencode lists them; None while the list is loading.
         self.connected: list[str] | None = None
         self.connected_complete = False
@@ -340,12 +358,38 @@ class MainWindow(QMainWindow):
         self.content_layout.setContentsMargins(28, 24, 28, 22)
         self.content_layout.setSpacing(14)
 
+        providers = QWidget()
+        providers_layout = QHBoxLayout(providers)
+        providers_layout.setContentsMargins(0, 0, 0, 0)
+        providers_layout.setSpacing(0)
+        providers_layout.addWidget(self.sidebar)
+        providers_layout.addWidget(self.content, 1)
+
+        self.workspaces_page = QWidget()
+        self.workspaces_layout = QVBoxLayout(self.workspaces_page)
+        self.workspaces_layout.setContentsMargins(28, 24, 28, 22)
+        self.workspaces_layout.setSpacing(14)
+
+        self.tabs = QTabBar()
+        self.tabs.setObjectName("tabs")
+        self.tabs.setExpanding(False)
+        self.tabs.setDrawBase(False)
+        self.tabs.setMovable(False)
+        self.tabs.addTab("")
+        self.tabs.addTab("")
+        self.tabs.currentChanged.connect(self._show_tab)
+
+        self.stack = QStackedWidget()
+        self.stack.addWidget(providers)
+        self.stack.addWidget(self.workspaces_page)
+
         root = QWidget()
-        layout = QHBoxLayout(root)
+        layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self.sidebar)
-        layout.addWidget(self.content, 1)
+        layout.addWidget(self._tab_strip())
+        layout.addWidget(self._banner_slot(), 0)
+        layout.addWidget(self.stack, 1)
         self.setCentralWidget(root)
 
         # opencode or the user may edit the config while the window is open.
@@ -355,9 +399,7 @@ class MainWindow(QMainWindow):
         self._reload_debounced = QTimer(self, singleShot=True, interval=400)
         self._reload_debounced.timeout.connect(self._reload_config)
         self.banner_timer = QTimer(self, singleShot=True, interval=6000)
-        self.banner_timer.timeout.connect(lambda: self.banner.hide())
-        self.banner = QFrame()
-        self.banner.hide()
+        self.banner_timer.timeout.connect(self._hide_banner)
 
         self.refresh()
 
@@ -604,6 +646,127 @@ class MainWindow(QMainWindow):
 
         self._run_write(work, tr("banner.teamSaved", names=", ".join(member.name for member in members)))
 
+    # ---- workspaces ----
+
+    def refresh_workspaces(self) -> None:
+        if self.ws_busy:
+            return
+        self.ws_busy = True
+        self.ws_loaded = True
+        self.render_workspaces()
+
+        def work():
+            return workspaces.list_workspaces(catalog.find_cli())
+
+        def done(result) -> None:
+            self.ws_items, self.ws_note = result
+            self.ws_busy = False
+            self.render_workspaces()
+
+        def failed(error: str) -> None:
+            self.ws_busy = False
+            self.ws_items, self.ws_note = [], tr("banner.wsFailed", error=error)
+            self.show_banner(self.ws_note, "danger")
+            self.render_workspaces()
+
+        tasks.run(work, done, failed)
+
+    def add_workspace(self) -> None:
+        if self.ws_busy:
+            return
+        folder = QFileDialog.getExistingDirectory(self, tr("ws.addTitle"), QDir.homePath())
+        if not folder:
+            return
+
+        def work():
+            workspace = workspaces.add(catalog.find_cli(), folder)
+            workspaces.include(workspace)  # A folder the user just picked is not meant to stay hidden.
+            return None
+
+        self._run_workspaces(work, tr("banner.wsAdded", folder=Path(folder).name or folder))
+
+    def exclude_workspace(self, item: workspaces.Workspace) -> None:
+        workspaces.exclude(item)
+        self.show_banner(tr("banner.wsExcluded", folder=item.name), "accent")
+        self.render_workspaces()
+
+    def restore_workspace(self, item: workspaces.Workspace) -> None:
+        workspaces.include(item)
+        self.show_banner(tr("banner.wsRestored", folder=item.name), "accent")
+        self.render_workspaces()
+
+    def open_workspace(self, item: workspaces.Workspace) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(item.directory))
+
+    def remove_workspace(self, item: workspaces.Workspace) -> None:
+        if self.ws_busy:
+            return
+        text = "ws.removeWorktreeText" if item.kind == workspaces.WORKTREE else "ws.removeProjectText"
+        answer = QMessageBox.question(
+            self,
+            tr("ws.removeTitle"),
+            tr(text, folder=item.directory) + ("\n\n" + tr("ws.removeNoteMissing") if not item.exists else ""),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._remove_workspace(item, force=False)
+
+    def _remove_workspace(self, item: workspaces.Workspace, force: bool) -> None:
+        self.ws_busy = True
+        self.render_workspaces()
+        cli = catalog.find_cli()
+
+        def work() -> str:
+            try:
+                return workspaces.remove(item, cli, force=force)
+            except workspaces.ForceRequired:
+                return FORCE_NEEDED
+
+        def done(key: object) -> None:
+            self.ws_busy = False
+            if key == FORCE_NEEDED:
+                answer = QMessageBox.question(
+                    self,
+                    tr("ws.removeTitle"),
+                    tr("ws.forceText", folder=item.directory),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                self.render_workspaces()
+                if answer == QMessageBox.StandardButton.Yes:
+                    self._remove_workspace(item, True)
+                return
+            message = tr(str(key), folder=item.name)
+            self.show_banner(message, "success")
+            self.synced.emit(message)
+            self.refresh_workspaces()
+
+        def failed(error: str) -> None:
+            self.ws_busy = False
+            self.show_banner(tr("banner.wsFailed", error=error), "danger")
+            self.render_workspaces()
+
+        tasks.run(work, done, failed)
+
+    def _run_workspaces(self, work, message: str) -> None:
+        self.ws_busy = True
+        self.render_workspaces()
+
+        def done(_: object) -> None:
+            self.ws_busy = False
+            self.show_banner(message, "success")
+            self.synced.emit(message)
+            self.refresh_workspaces()
+
+        def failed(error: str) -> None:
+            self.ws_busy = False
+            self.show_banner(tr("banner.wsFailed", error=error), "danger")
+            self.render_workspaces()
+
+        tasks.run(work, done, failed)
+
     def _write(self, provider_id: str, add: list[RemoteModel], remove: list[str], message: str) -> None:
         def work() -> None:
             # Re-read the file so edits made since the window loaded it are not overwritten.
@@ -683,14 +846,46 @@ class MainWindow(QMainWindow):
         layout.addLayout(bottom)
         return sidebar
 
+    def _tab_strip(self) -> QWidget:
+        strip = QWidget()
+        strip.setObjectName("tabStrip")
+        row = QHBoxLayout(strip)
+        row.setContentsMargins(20, 12, 20, 0)
+        row.setSpacing(8)
+        row.addWidget(self.tabs)
+        row.addStretch(1)
+        return strip
+
+    def _banner_slot(self) -> QWidget:
+        """The one banner of the window, above both tabs."""
+        holder = QWidget()
+        self.banner_slot = QHBoxLayout(holder)
+        self.banner_slot.setContentsMargins(28, 12, 28, 0)
+        self.banner_slot.addWidget(self.banner)
+        holder.hide()
+        return holder
+
+    def _hide_banner(self) -> None:
+        self.banner.hide()
+        self.banner_slot.parentWidget().hide()
+
+    def _show_tab(self, index: int) -> None:
+        self.tab = "workspaces" if index == 1 else "providers"
+        self.stack.setCurrentIndex(index)
+        if self.tab == "workspaces" and not self.ws_loaded:
+            self.refresh_workspaces()
+
     def switch_language(self) -> None:
         i18n.set_language("en" if i18n.language() == "ru" else "ru")
         self.language_changed.emit()
         self.render()
 
     def render(self) -> None:
+        self.tabs.setTabText(0, tr("tab.providers"))
+        self.tabs.setTabText(1, tr("tab.workspaces"))
         self.render_sidebar()
         self.render_content()
+        self.render_workspaces()
 
     def render_sidebar(self) -> None:
         self.brand_sub.setText(tr("app.brandSub"))
@@ -742,15 +937,9 @@ class MainWindow(QMainWindow):
 
     def render_content(self) -> None:
         layout = self.content_layout
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget() and item.widget() is not self.banner:
-                item.widget().deleteLater()
-            elif item.layout():
-                _clear(item.layout())
+        _clear(layout)
 
         layout.addLayout(self._top_bar())
-        layout.addWidget(self.banner)
         if self.page == "agents":
             panel = AgentsPanel(agents.agents(self.config), agents.default_agent(self.config), self.model_list(), self.busy)
             panel.edit.connect(self.edit_agent)
@@ -772,6 +961,23 @@ class MainWindow(QMainWindow):
         layout.addLayout(self._provider_header(provider, result))
         layout.addWidget(self._model_list(provider, result), 1)
         layout.addLayout(self._footer(provider, result))
+
+    def render_workspaces(self) -> None:
+        self.excluded = workspaces.read_excluded()
+        _clear(self.workspaces_layout)
+        panel = WorkspacesPanel(self.ws_items, self.ws_note, self.excluded, self.show_excluded, self.ws_busy)
+        panel.refresh.connect(self.refresh_workspaces)
+        panel.add.connect(self.add_workspace)
+        panel.exclude.connect(self.exclude_workspace)
+        panel.restore.connect(self.restore_workspace)
+        panel.remove.connect(self.remove_workspace)
+        panel.open.connect(self.open_workspace)
+        panel.show_excluded_toggled.connect(lambda shown: self._show_excluded(shown))
+        self.workspaces_layout.addWidget(panel, 1)
+
+    def _show_excluded(self, shown: bool) -> None:
+        self.show_excluded = shown
+        self.render_workspaces()
 
     def _top_bar(self) -> QHBoxLayout:
         folder = button("", "ghost", "folder")
@@ -893,6 +1099,7 @@ class MainWindow(QMainWindow):
         return footer
 
     def show_banner(self, text: str, tone: str) -> None:
+        self.banner_slot.removeWidget(self.banner)
         self.banner.deleteLater()
         self.banner = QFrame()
         self.banner.setObjectName("banner")
@@ -900,7 +1107,8 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(self.banner)
         row.setContentsMargins(14, 10, 14, 10)
         row.addWidget(label(text, wrap=True), 1)
-        self.render_content()
+        self.banner_slot.addWidget(self.banner)
+        self.banner_slot.parentWidget().show()
         self.banner_timer.start()
 
 
