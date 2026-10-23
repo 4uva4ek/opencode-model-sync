@@ -39,6 +39,7 @@ The **Workspaces** tab lists the folders opencode works in and the git worktrees
 
 - **Exclude** hides a workspace in this app only. opencode is not touched and the folder stays where it is. "Show excluded" brings the hidden rows back; **Bring back** returns one of them.
 - **Remove** asks opencode itself. A worktree goes away through `DELETE /api/worktree`, removed the way opencode created it; when it holds changes that are not committed, the app asks a second time before dropping those. A project folder is archived in opencode's database, which is how opencode takes it off its own list — the folder and its sessions stay, and opening the folder in opencode shows it again.
+- What opencode has archived is off this page, exactly as it is off opencode's own list. "Show archived" brings those rows into view, and **Back from the archive** clears the mark so the workspace is on the list of opencode again.
 - **Add folder** hands a folder to the running opencode, the same way opening a folder there registers it.
 - A row says whether its folder is still on the disk, whether it is a git worktree, how many sessions opencode has saved for it, and when it was last used. The **⋯** menu opens the folder.
 

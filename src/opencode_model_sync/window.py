@@ -342,6 +342,7 @@ class MainWindow(QMainWindow):
         self.ws_loaded = False
         self.excluded: set[str] = set()
         self.show_excluded = False
+        self.show_archived = False
         self.banner = QFrame()
         self.banner.hide()
         # Connected models as opencode lists them; None while the list is loading.
@@ -749,6 +750,17 @@ class MainWindow(QMainWindow):
 
         tasks.run(work, done, failed)
 
+    def unarchive_workspace(self, item: workspaces.Workspace) -> None:
+        """Take a workspace out of the archive of opencode; it comes back to this list by itself."""
+        if self.ws_busy:
+            return
+
+        def work():
+            workspaces.unarchive(item)
+            return None
+
+        self._run_workspaces(work, tr("banner.wsUnarchived", folder=item.name))
+
     def _run_workspaces(self, work, message: str) -> None:
         self.ws_busy = True
         self.render_workspaces()
@@ -964,18 +976,26 @@ class MainWindow(QMainWindow):
     def render_workspaces(self) -> None:
         self.excluded = workspaces.read_excluded()
         _clear(self.workspaces_layout)
-        panel = WorkspacesPanel(self.ws_items, self.ws_note, self.excluded, self.show_excluded, self.ws_busy)
+        panel = WorkspacesPanel(
+            self.ws_items, self.ws_note, self.excluded, self.show_excluded, self.show_archived, self.ws_busy
+        )
         panel.refresh.connect(self.refresh_workspaces)
         panel.add.connect(self.add_workspace)
         panel.exclude.connect(self.exclude_workspace)
         panel.restore.connect(self.restore_workspace)
         panel.remove.connect(self.remove_workspace)
+        panel.unarchive.connect(self.unarchive_workspace)
         panel.open.connect(self.open_workspace)
         panel.show_excluded_toggled.connect(lambda shown: self._show_excluded(shown))
+        panel.show_archived_toggled.connect(lambda shown: self._show_archived(shown))
         self.workspaces_layout.addWidget(panel, 1)
 
     def _show_excluded(self, shown: bool) -> None:
         self.show_excluded = shown
+        self.render_workspaces()
+
+    def _show_archived(self, shown: bool) -> None:
+        self.show_archived = shown
         self.render_workspaces()
 
     def _top_bar(self) -> QHBoxLayout:

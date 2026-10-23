@@ -22,6 +22,7 @@ class WorkspaceRow(QFrame):
     exclude = Signal(object)
     restore = Signal(object)
     remove = Signal(object)
+    unarchive = Signal(object)
     open = Signal(object)
 
     def __init__(self, item: workspaces.Workspace, excluded: bool, busy: bool, last: bool) -> None:
@@ -81,11 +82,19 @@ class WorkspaceRow(QFrame):
             away.clicked.connect(lambda: self.exclude.emit(item))
             layout.addWidget(away)
 
-        drop = button(tr("ws.remove"), "ghost", "trash", palette.danger)
-        drop.setToolTip(tr("ws.removeHint"))
-        drop.setEnabled(not busy)
-        drop.clicked.connect(lambda: self.remove.emit(item))
-        layout.addWidget(drop)
+        if item.archived:
+            # opencode already took it off its own list: the way out of an archive is to leave it.
+            out = button(tr("ws.unarchive"), "ghost")
+            out.setToolTip(tr("ws.unarchiveHint"))
+            out.setEnabled(not busy)
+            out.clicked.connect(lambda: self.unarchive.emit(item))
+            layout.addWidget(out)
+        else:
+            drop = button(tr("ws.remove"), "ghost", "trash", palette.danger)
+            drop.setToolTip(tr("ws.removeHint"))
+            drop.setEnabled(not busy)
+            drop.clicked.connect(lambda: self.remove.emit(item))
+            layout.addWidget(drop)
 
         manage = button("⋯", "ghost")
         manage.setAccessibleName(tr("ws.actions"))
@@ -104,8 +113,10 @@ class WorkspacesPanel(QWidget):
     exclude = Signal(object)
     restore = Signal(object)
     remove = Signal(object)
+    unarchive = Signal(object)
     open = Signal(object)
     show_excluded_toggled = Signal(bool)
+    show_archived_toggled = Signal(bool)
 
     def __init__(
         self,
@@ -113,6 +124,7 @@ class WorkspacesPanel(QWidget):
         note: str,
         excluded: set[str],
         show_excluded: bool,
+        show_archived: bool,
         busy: bool,
     ) -> None:
         super().__init__()
@@ -145,8 +157,11 @@ class WorkspacesPanel(QWidget):
             layout.addWidget(_centered(tr("ws.loading"), "empty"), 1)
             return
 
-        listed = items if show_excluded else [item for item in items if item.key not in excluded]
-        hidden = len(items) - len(listed)
+        # A row is kept off this page one of two ways: hidden here, or archived in opencode.
+        kept = [item for item in items if show_excluded or item.key not in excluded]
+        listed = [item for item in kept if show_archived or not item.archived]
+        hidden = len([item for item in items if item.key in excluded])
+        in_archive = len([item for item in items if item.archived])
         if not listed:
             layout.addWidget(_centered(tr("ws.empty"), "empty"), 1)
         else:
@@ -160,6 +175,7 @@ class WorkspacesPanel(QWidget):
                 row.exclude.connect(self.exclude.emit)
                 row.restore.connect(self.restore.emit)
                 row.remove.connect(self.remove.emit)
+                row.unarchive.connect(self.unarchive.emit)
                 row.open.connect(self.open.emit)
                 column.addWidget(row)
             column.addStretch(1)
@@ -170,17 +186,22 @@ class WorkspacesPanel(QWidget):
             tr("ws.summary", total=len(listed), worktrees=len([item for item in listed if item.kind == workspaces.WORKTREE]), gone=gone),
             "subtitle",
         )
-        toggle = QCheckBox(tr("ws.showExcluded", count=hidden))
-        toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        toggle.setToolTip(tr("ws.showExcludedHint"))
-        toggle.setChecked(show_excluded)
-        toggle.setEnabled(not busy)
-        toggle.toggled.connect(self.show_excluded_toggled.emit)
         footer = QHBoxLayout()
         footer.setSpacing(10)
         footer.addWidget(summary, 1)
-        footer.addWidget(toggle)
+        footer.addWidget(_toggle("ws.showExcluded", hidden, show_excluded, busy, self.show_excluded_toggled))
+        footer.addWidget(_toggle("ws.showArchived", in_archive, show_archived, busy, self.show_archived_toggled))
         layout.addLayout(footer)
+
+
+def _toggle(key: str, count: int, checked: bool, busy: bool, signal) -> QCheckBox:
+    widget = QCheckBox(tr(key, count=count))
+    widget.setCursor(Qt.CursorShape.PointingHandCursor)
+    widget.setToolTip(tr(key + "Hint"))
+    widget.setChecked(checked)
+    widget.setEnabled(not busy)
+    widget.toggled.connect(signal.emit)
+    return widget
 
 
 def _centered(text: str, name: str) -> QWidget:

@@ -188,6 +188,23 @@ def test_the_time_handed_to_opencode_is_whole_milliseconds(storage):
     assert archived > 10**12, "milliseconds since 1970, not seconds"
 
 
+def test_a_workspace_brought_out_of_the_archive_is_listed_by_opencode_again(storage):
+    item = next(
+        item for item in workspaces.list_from_database(storage / "opencode.db") if item.directory == "C:/work/gone"
+    )
+    assert item.archived
+
+    workspaces.unarchive(item)
+
+    connection = sqlite3.connect(storage / "opencode.db")
+    archived, updated = connection.execute("select time_archived, time_updated from project where id = 'p2'").fetchone()
+    untouched = connection.execute("select time_updated from project where id = 'p1'").fetchone()[0]
+    connection.close()
+    assert archived is None
+    assert updated > 10**12, "whole milliseconds, the unit of opencode"
+    assert untouched == 30, "a workspace that is not archived is left alone"
+
+
 def test_removing_through_the_service_asks_opencode_and_not_the_database(storage, monkeypatch):
     seen = []
 
@@ -451,3 +468,54 @@ def test_a_worktree_with_changes_of_its_own_is_only_removed_after_a_second_yes(v
 
     assert calls == [False, True], "the second question is what lets opencode force it"
     assert not widget.ws_busy
+
+
+def test_removing_a_folder_takes_its_row_off_the_page(view, monkeypatch):
+    """What the user watches for after «Remove»: the row is no longer there."""
+    widget, items, _ = view
+    away = workspaces.Workspace(project_id="p9", directory="E:/gone/away", kind=workspaces.PROJECT, active=5)
+    items.append(away)
+    widget.refresh_workspaces()
+    assert "away" in [item.name for item in listed(widget)]
+
+    def archiving(item, cli, force=False):
+        item.archived = True  # what opencode leaves behind a removed folder: its row, marked archived
+        return "banner.wsArchived"
+
+    monkeypatch.setattr(window.QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(window.workspaces, "remove", archiving)
+    widget.remove_workspace(away)
+
+    assert away.archived
+    assert "away" not in [item.name for item in listed(widget)], "opencode archived it, so the page lets it go"
+    assert not widget.ws_busy
+
+    check = panel(widget).findChildren(QCheckBox)[1]
+    assert check.text() == window.tr("ws.showArchived", count=1)
+    check.setChecked(True)
+    assert "away" in [item.name for item in listed(widget)], "and it is one click away from being seen again"
+
+
+def test_an_archived_row_offers_the_way_out_rather_than_removal(view, monkeypatch):
+    widget, items, _ = view
+    away = workspaces.Workspace(
+        project_id="p9", directory="E:/gone/away", kind=workspaces.PROJECT, active=5, archived=True
+    )
+    items.append(away)
+    widget.show_archived = True
+    widget.render_workspaces()
+
+    row = next(row for row in rows(widget) if row.item.name == "away")
+    assert window.tr("ws.unarchive") in [child.text() for child in row.findChildren(QPushButton)]
+    assert window.tr("ws.remove") not in [child.text() for child in row.findChildren(QPushButton)]
+    assert window.tr("ws.archived") in [child.text() for child in row.findChildren(QLabel)]
+
+    def opening(item):
+        item.archived = False
+
+    monkeypatch.setattr(window.workspaces, "unarchive", opening)
+    widget.unarchive_workspace(away)
+
+    assert not away.archived
+    row = next(row for row in rows(widget) if row.item.name == "away")
+    assert window.tr("ws.remove") in [child.text() for child in row.findChildren(QPushButton)]

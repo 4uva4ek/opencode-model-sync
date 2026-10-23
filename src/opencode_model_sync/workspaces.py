@@ -348,6 +348,19 @@ def remove(workspace: Workspace, cli: Path | None, force: bool = False) -> str:
     return "banner.wsArchived"
 
 
+def unarchive(workspace: Workspace) -> None:
+    """Put a workspace back on the list of opencode: the archive mark is the only thing hiding it."""
+    database = _writable()
+    try:
+        database.execute(
+            "update project set time_archived = null, time_updated = ? where id = ? and time_archived is not null",
+            (_now(), workspace.project_id),
+        )
+        database.commit()
+    finally:
+        database.close()
+
+
 def _forget_worktree(workspace: Workspace) -> None:
     """Remove the saved pointer to a worktree without touching the folder itself."""
     database = _writable()
