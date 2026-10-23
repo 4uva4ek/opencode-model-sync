@@ -89,7 +89,8 @@ QMainWindow, #content {{ background: {p.window}; }}
 #tabStrip {{ background: {p.sidebar}; border-bottom: 1px solid {p.border}; }}
 QToolTip {{ background: {p.surface}; color: {p.text}; border: 1px solid {p.border}; padding: 6px 8px; border-radius: 6px; }}
 
-QTabBar#tabs {{ background: transparent; }}
+/* The bar reaches one pixel past the bottom of the strip so the chosen tab can stand on it. */
+QTabBar#tabs {{ background: transparent; margin-bottom: -1px; }}
 QTabBar#tabs::tab {{
     background: transparent;
     color: {p.muted};
@@ -99,7 +100,18 @@ QTabBar#tabs::tab {{
     font-weight: 600;
 }}
 QTabBar#tabs::tab:hover {{ color: {p.text}; background: {p.surface_hover}; }}
-QTabBar#tabs::tab:selected {{ color: {p.text}; background: {p.surface}; border-color: {p.border}; }}
+/* The chosen tab is outlined on three sides only: along the bottom it becomes the page under it. */
+QTabBar#tabs::tab:selected {{
+    color: {p.text};
+    background: {p.window};
+    border: 1px solid {p.border};
+    border-bottom: none;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+    padding-bottom: 8px;
+}}
 
 #brand {{ font-size: 16px; font-weight: 700; }}
 #brandSub {{ color: {p.faint}; font-size: 12px; }}
