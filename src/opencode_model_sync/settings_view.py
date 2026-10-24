@@ -479,6 +479,12 @@ class SettingsPanel(QWidget):
         header = QHBoxLayout()
         header.addWidget(self.title)
         header.addStretch(1)
+        self.catalog_button = None
+        if mcp:
+            from .mcp_catalog_view import t as catalog_text
+            self.catalog_button = button(catalog_text("browse"), "primary", "plus")
+            self.catalog_button.clicked.connect(self.browse_catalog)
+            header.addWidget(self.catalog_button)
         header.addWidget(self.refresh_button)
         layout.addLayout(header)
         layout.addWidget(self.subtitle)
@@ -503,6 +509,15 @@ class SettingsPanel(QWidget):
     @property
     def dirty(self): return bool(self.changes or self.errors)
 
+    def browse_catalog(self):
+        from .mcp_catalog_view import CatalogDialog
+        dialog = CatalogDialog(self.mcp_servers.data, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.mcp_servers.data[dialog.result_name] = dialog.result_config
+        self.mcp_servers.fill(dialog.result_name)
+        self._changed()
+
     def refresh_suggestions(self):
         available = {
             ("model",): [item.ref for item in self.models().items] if self.models else [],
@@ -520,6 +535,9 @@ class SettingsPanel(QWidget):
             combo.blockSignals(False)
 
     def retranslate(self):
+        if self.catalog_button:
+            from .mcp_catalog_view import t as catalog_text
+            self.catalog_button.setText(catalog_text("browse"))
         self.title.setText(t("mcp" if self.mcp else "title"))
         self.subtitle.setText(t("subtitle", version=settings.schema()["x-version"], count=len(self.specs)))
         self.search.setPlaceholderText(t("search"))

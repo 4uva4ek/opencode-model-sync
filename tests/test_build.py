@@ -1,6 +1,8 @@
 """Exercise macOS release packaging with real directory and file symlinks."""
 
 import importlib.util
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +12,31 @@ import pytest
 spec = importlib.util.spec_from_file_location("build_app", Path(__file__).parents[1] / "scripts/build.py")
 build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
+
+
+def test_windows_build_does_not_search_unrelated_path(monkeypatch):
+    monkeypatch.setattr(build.sys, "platform", "win32")
+    original = {"PATH": r"C:\external-sdk\poppler;C:\external-sdk\libheif", "SystemRoot": r"C:\Windows", "KEEP": "value"}
+    clean = build.build_environment(original)
+    assert "external-sdk" not in clean["PATH"]
+    assert str(Path(original["SystemRoot"]) / "System32") in clean["PATH"]
+    assert clean["KEEP"] == "value"
+    assert original["PATH"].startswith(r"C:\external-sdk")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PE DLLs")
+def test_windows_bundle_rejects_wrong_icu_even_when_filename_matches(tmp_path):
+    import PySide6
+    qt = Path(PySide6.__file__).parent / "Qt6Core.dll"
+    target = tmp_path / "_internal" / "PySide6"
+    target.mkdir(parents=True)
+    shutil.copyfile(qt, target / qt.name)
+    # With no bundled ICU, Windows resolves its own system implementation.
+    build.validate_windows_qt(tmp_path)
+    # An unrelated PE DLL with this name must fail validation before release.
+    shutil.copyfile(Path(sys.base_prefix) / "python3.dll", target.parent / "icuuc.dll")
+    with pytest.raises(RuntimeError, match="Incompatible ICU"):
+        build.validate_windows_qt(tmp_path)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Requires macOS ditto and codesign")

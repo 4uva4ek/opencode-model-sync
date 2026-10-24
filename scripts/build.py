@@ -2,13 +2,14 @@
 
     uv run python scripts/build.py
 
-Produces dist/OpenCode Model Sync(.app|.exe folder) and an archive next to it named
-opencode-model-sync-<os>-<arch>.(zip|tar.gz). Each OS has to build its own app.
+Produces dist/OpenCode Companion(.app|.exe folder) and an archive next to it named
+opencode-companion-<os>-<arch>.(zip|tar.gz). Each OS has to build its own app.
 """
 
 from __future__ import annotations
 
 import os
+import json
 import platform
 import shutil
 import subprocess
@@ -18,8 +19,57 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NAME = "OpenCode Model Sync"
-SLUG = "opencode-model-sync"
+NAME = "OpenCode Companion"
+SLUG = "opencode-companion"
+
+
+def build_environment(environ=None) -> dict[str, str]:
+    """Do not let unrelated SDKs on PATH supply identically named Windows DLLs."""
+    env = dict(os.environ if environ is None else environ)
+    if sys.platform == "win32":
+        windows = Path(env.get("SystemRoot", r"C:\Windows"))
+        env["PATH"] = os.pathsep.join(dict.fromkeys(map(str, (
+            Path(sys.executable).parent, Path(sys.base_prefix), windows / "System32", windows,
+        ))))
+    return env
+
+
+def validate_windows_qt(bundle: Path) -> None:
+    """Reject bundled ICU lookalikes that lack the symbols required by QtCore."""
+    import pefile
+
+    with pefile.PE(str(bundle / "_internal" / "PySide6" / "Qt6Core.dll")) as qt:
+        imports = next((item for item in qt.DIRECTORY_ENTRY_IMPORT if item.dll.lower() == b"icuuc.dll"), None)
+        if imports is None:
+            return
+        required = {item.name for item in imports.imports if item.name}
+    # System ICU is normally excluded by PyInstaller. If an ICU is bundled,
+    # validate every copy: Windows can load only one DLL with this base name.
+    for library in bundle.rglob("*"):
+        if library.name.lower() != "icuuc.dll":
+            continue
+        with pefile.PE(str(library)) as pe:
+            exported = {item.name for item in pe.DIRECTORY_ENTRY_EXPORT.symbols if item.name}
+        missing = required - exported
+        if missing:
+            raise RuntimeError(f"Incompatible ICU in {library}: missing {', '.join(x.decode() for x in sorted(missing))}")
+
+
+def smoke_windows(executable: Path, directory: Path) -> None:
+    """Exercise the frozen app and native Windows Qt plugin before shipping."""
+    report = directory / "windows-smoke.json"
+    report.unlink(missing_ok=True)
+    env = build_environment()
+    env["QT_QPA_PLATFORM"] = "windows"
+    # Developer Qt/Python overrides must not hide a missing packaged dependency.
+    for name in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "PYTHONPATH", "PYTHONHOME"):
+        env.pop(name, None)
+    result = subprocess.run([str(executable), "--self-test", str(report)], env=env,
+                            timeout=45, creationflags=subprocess.CREATE_NO_WINDOW)
+    data = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else {}
+    if result.returncode or data.get("status") != "ok":
+        raise RuntimeError(f"Frozen Windows smoke test failed: {data or result.returncode}")
+    print(f"Windows executable verified: Qt {data['qt']}, platform {data['platform']}")
 
 
 def render_icon(path: Path) -> None:
@@ -64,26 +114,29 @@ def archive_macos(app: Path, archive: Path) -> None:
 
 
 def main() -> None:
+    if sys.platform == "win32":
+        os.environ["PATH"] = build_environment()["PATH"]
     icon = ROOT / "assets" / "icon.png"
     icon.parent.mkdir(exist_ok=True)
     render_icon(icon)
 
     dist = ROOT / "dist"
-    shutil.rmtree(dist, ignore_errors=True)
-    shutil.rmtree(ROOT / "build", ignore_errors=True)
+    # Keep older builds and archives. PyInstaller replaces only this app's target.
+    dist.mkdir(exist_ok=True)
     subprocess.run(
         [
             sys.executable,
             "-m",
             "PyInstaller",
             "--noconfirm",
+            "--clean",
             "--windowed",
             "--name",
             NAME,
             "--icon",
             str(icon),
             "--osx-bundle-identifier",
-            "dev.opencode-model-sync",
+            "dev.opencode-companion",
             "--paths",
             str(ROOT / "src"),
             "--add-data",
@@ -99,7 +152,12 @@ def main() -> None:
         ],
         check=True,
         cwd=ROOT,
+        env=build_environment(),
     )
+
+    if sys.platform == "win32":
+        validate_windows_qt(dist / NAME)
+        smoke_windows(dist / NAME / f"{NAME}.exe", ROOT / "build")
 
     archive_base = dist / f"{SLUG}-{target()}"
     if sys.platform == "darwin":

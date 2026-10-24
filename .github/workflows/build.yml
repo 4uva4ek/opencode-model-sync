@@ -34,7 +34,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: opencode-model-sync-${{ matrix.os }}
+          name: opencode-companion-${{ matrix.os }}
           path: |
             dist/*.zip
             dist/*.tar.gz

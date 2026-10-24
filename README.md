@@ -1,4 +1,6 @@
-# OpenCode Model Sync
+# OpenCode Companion
+
+Previously OpenCode Model Sync. Manage OpenCode models, agents, MCP servers, workspaces and settings in one desktop app. Existing configuration, language preferences and excluded workspaces are retained. The old `opencode-model-sync` command remains a compatibility alias.
 
 [Русская версия](README.ru.md)
 
@@ -13,7 +15,7 @@ A small desktop app for Linux, macOS (Apple Silicon) and Windows. It asks your m
 - Two independent buttons keep the same labels in both states. Highlighted means on; muted means off:
   - **Display** shows or hides the model in OpenCode's catalog through the config, preserving its settings.
   - **Tools** enables or disables tool-calling support.
-- Only one Model Sync instance runs per user. Launching again brings the existing window forward, including from the tray. A crashed instance does not prevent the next launch.
+- Only one Companion instance runs per user. Launching again brings the existing window forward, including from the tray. A crashed instance does not prevent the next launch.
 - Finds local servers on their default ports that are not in the config yet and offers to add them.
 - The config only changes when you press a button. A backup `opencode.json.bak-model-sync-*` is written next to it before the first change.
 - Rename or remove a provider from its **⋯** menu. Renaming keeps its ID; removing also clears model selections that refer to it.
@@ -47,6 +49,20 @@ The app looks for the opencode command line on `PATH`, in the install script, np
 
 New agents go to the `agent` section, whose format the opencode docs describe. An agent from the newer `agents` section is edited there, but its permission rules are kept as written. Settings the app does not manage, such as `color` or `steps`, are kept.
 
+## MCP catalog
+
+Open **MCP → Add from catalog**. Sources:
+
+- **Starter collection** — offline recipes for Context7, Sentry and Grep from the [OpenCode examples](https://opencode.ai/docs/mcp-servers/#examples), plus Playwright and GitHub from their publishers' instructions.
+- **Official MCP Registry** — live latest-version search and cursor pagination through the public [registry API](https://registry.modelcontextprotocol.io/).
+- **Glama** — source repositories and remote connectors. The [Glama directory API](https://glama.ai/mcp/reference) requires a key: enter it in the catalog window or set `GLAMA_API_KEY` before launching. An entered key is kept only for that window, is not written to OpenCode's configuration, and is never sent to another catalog. Listings link back to Glama and advertising is labeled.
+
+Choose a server and connection option, then **Configure and add…**. Review the URL or exact command, choose a unique name, add HTTP headers or environment variables, and optionally leave the server disabled. Values may reference OpenCode's environment with `{env:NAME}`. Local recipes require Node.js (`npx`), uv (`uvx`) or Docker; Companion does not install those runtimes. Browsing never executes a package.
+
+When a source has no usable connection metadata, open its publisher instructions and enter a URL or command manually. Unsupported package arguments also require manual setup. Package commands are never guessed from repository names. Existing names cannot be overwritten.
+
+Adding creates a draft on the MCP page. Press **Save** to write it to `mcp.servers`, the OpenCode 2.1.4 format used by the settings editor. Comments in JSONC and unrelated settings are preserved, with a backup before replacement. Saving an enabled server allows OpenCode to connect or run its command. OAuth servers need a subsequent sign-in in OpenCode or `opencode mcp auth NAME`. Inspect connection status with `opencode mcp list`.
+
 ## Workspaces
 
 The **Workspaces** tab lists the folders opencode works in and the git worktrees made from them, the same list opencode shows in its sidebar. Rows for folders that are no longer on the disk stay there for good, and opencode has no screen to clean them up.
@@ -64,15 +80,15 @@ While opencode runs, the list comes from it through `opencode api`; otherwise th
 Builds for every platform are attached to the [latest release](../../releases/latest). The builds are not signed:
 
 - **macOS:** unzip, then right-click the app and choose **Open** the first time.
-- **Windows:** unzip and run `OpenCode Model Sync.exe`. SmartScreen may ask you to confirm.
-- **Linux:** unpack the archive and run `opencode-model-sync/OpenCode Model Sync`.
+- **Windows:** extract into a new empty folder and run `OpenCode Companion.exe`. Do not unpack over an older build: obsolete DLLs may prevent startup. SmartScreen may ask you to confirm.
+- **Linux:** unpack the archive and run `opencode-companion/OpenCode Companion`.
 
 ## Run from source
 
 You need [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv run opencode-model-sync
+uv run opencode-companion
 ```
 
 ## Build

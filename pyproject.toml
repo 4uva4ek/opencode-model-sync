@@ -1,7 +1,7 @@
 [project]
-name = "opencode-model-sync"
-version = "0.3.0"
-description = "Desktop app that adds models from local and self-hosted servers to the opencode config"
+name = "opencode-companion"
+version = "0.4.1"
+description = "Desktop companion for OpenCode models, agents, MCP servers, workspaces and settings"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
@@ -11,11 +11,15 @@ dependencies = [
 ]
 
 [project.gui-scripts]
+opencode-companion = "opencode_model_sync:main"
 opencode-model-sync = "opencode_model_sync:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "opencode_model_sync"
 
 [dependency-groups]
 dev = [

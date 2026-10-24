@@ -59,7 +59,7 @@ UI = {
     "live": ("OpenCode watches this file. The setting is used by subsequent operations after it reloads the configuration.",
              "OpenCode следит за этим файлом. После перечитывания настройка используется в последующих операциях."),
     "applyNotice": ("When changes take effect", "Когда применятся изменения"),
-    "quit": ("There are unsaved settings. Discard them and quit Model Sync?", "В настройках есть несохранённые изменения. Отменить их и выйти из Model Sync?"),
+    "quit": ("There are unsaved settings. Discard them and quit OpenCode Companion?", "В настройках есть несохранённые изменения. Отменить их и выйти из OpenCode Companion?"),
     "resetQuestion": ("Discard unsaved changes in this tab?", "Отменить несохранённые изменения на этой вкладке?"),
 }
 

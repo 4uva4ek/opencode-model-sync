@@ -336,7 +336,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("OpenCode Model Sync")
+        self.setWindowTitle("OpenCode Companion")
         self.setWindowIcon(icons.logo())
         self.resize(1080, 700)
         self.setMinimumSize(860, 540)
@@ -863,7 +863,7 @@ class MainWindow(QMainWindow):
         logo.setPixmap(icons.logo().pixmap(34, 34))
         brand = QVBoxLayout()
         brand.setSpacing(0)
-        brand.addWidget(label("Model Sync", "brand"))
+        brand.addWidget(label("Companion", "brand"))
         self.brand_sub = label(tr("app.brandSub"), "brandSub")
         brand.addWidget(self.brand_sub)
         header = QHBoxLayout()

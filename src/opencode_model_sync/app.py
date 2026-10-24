@@ -13,6 +13,7 @@ from .i18n import tr
 from .instance import SingleInstance
 from .window import MainWindow
 
+# Keep the settings namespace so upgrades retain language and user preferences.
 APP_ID = "opencode-model-sync"
 
 
@@ -32,7 +33,7 @@ class TrayWindow(MainWindow):
         self.hide()
         if not self.hinted:
             self.hinted = True
-            self.tray.showMessage("Model Sync", tr("app.trayHint"), icons.logo(), 3000)
+            self.tray.showMessage("Companion", tr("app.trayHint"), icons.logo(), 3000)
 
 
 def apply_theme(app: QApplication) -> None:
@@ -43,6 +44,8 @@ def apply_theme(app: QApplication) -> None:
 def main() -> int:
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
+    # QStandardPaths includes the application name. Acquire the existing lock
+    # under the old name so Companion and Model Sync cannot edit in parallel.
     app.setApplicationName("OpenCode Model Sync")
     app.setOrganizationName(APP_ID)
     try:
@@ -50,9 +53,10 @@ def main() -> int:
         if not instance.acquire():
             return 0
     except (OSError, RuntimeError) as error:
-        QMessageBox.critical(None, "OpenCode Model Sync", str(error))
+        QMessageBox.critical(None, "OpenCode Companion", str(error))
         return 1
-    app.setDesktopFileName(APP_ID)
+    app.setApplicationName("OpenCode Companion")
+    app.setDesktopFileName("opencode-companion")
     app.setWindowIcon(icons.logo())
     app.setStyle("Fusion")
     apply_theme(app)
@@ -101,11 +105,11 @@ def main() -> int:
 
         window.language_changed.connect(retranslate)
         tray.setContextMenu(menu)
-        tray.setToolTip("OpenCode Model Sync")
+        tray.setToolTip("OpenCode Companion")
         tray.activated.connect(
             lambda reason: show_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None
         )
-        window.synced.connect(lambda message: tray.showMessage("Model Sync", message, icons.logo(), 4000))
+        window.synced.connect(lambda message: tray.showMessage("Companion", message, icons.logo(), 4000))
         tray.show()
         app.setQuitOnLastWindowClosed(False)
 

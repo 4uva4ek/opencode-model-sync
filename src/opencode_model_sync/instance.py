@@ -1,4 +1,4 @@
-"""One Model Sync process per user, with activation of the existing window."""
+"""One Companion process per user; retain the old identity during upgrades."""
 
 import hashlib
 from pathlib import Path
@@ -34,7 +34,7 @@ class SingleInstance(QObject):
                     return False
                 socket.abort()
                 QThread.msleep(100)
-            raise RuntimeError("The running Model Sync instance did not respond.")
+            raise RuntimeError("The running OpenCode Companion instance did not respond.")
         QLocalServer.removeServer(self.name)  # Only the lock owner may remove a stale endpoint.
         if not self.server.listen(self.name):
             self.lock.unlock()
