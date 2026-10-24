@@ -8,7 +8,7 @@ from opencode_model_sync.config import (
     OpencodeConfig,
     config_dir,
     config_path,
-    configured_enabled,
+    configured_visible,
     strip_jsonc,
 )
 
@@ -176,27 +176,27 @@ def test_switching_a_model_off_leaves_the_mark_opencode_reads(tmp_path):
     )
     config = OpencodeConfig.load(path)
     models = config.provider("local").models
-    assert configured_enabled(models["on"], "providers")
-    assert not configured_enabled(models["off"], "providers")
+    assert configured_visible(models["on"], "providers")
+    assert not configured_visible(models["off"], "providers")
 
-    assert not config.set_model_enabled("local", "on", False), "nothing moved: the provider is already home"
-    assert not config.set_model_enabled("local", "off", True)
+    assert not config.set_model_visible("local", "on", False), "nothing moved: the provider is already home"
+    assert not config.set_model_visible("local", "off", True)
     config.save()
 
     saved = json.loads(path.read_text())["providers"]["local"]["models"]
     assert saved["on"] == {"disabled": True}
     assert saved["off"] == {"capabilities": {"tools": True}}, "switching on clears the mark and leaves the rest alone"
     with pytest.raises(ConfigError):
-        config.set_model_enabled("local", "unknown", True)
+        config.set_model_visible("local", "unknown", True)
 
 
 def test_each_map_has_its_own_word_for_a_model_it_does_not_offer():
     """Measured on opencode 2.1.4, both against his own model server: the legacy map obeys
     ``status: deprecated`` and reads a ``disabled`` as nothing, the current map the other way round."""
-    assert not configured_enabled({"status": "deprecated"}, "provider")
-    assert configured_enabled({"disabled": True}, "provider"), "the mark would be read as nothing there"
-    assert not configured_enabled({"disabled": True}, "providers")
-    assert configured_enabled({"status": "deprecated"}, "providers"), "the old word means nothing here"
+    assert not configured_visible({"status": "deprecated"}, "provider")
+    assert configured_visible({"disabled": True}, "provider"), "the mark would be read as nothing there"
+    assert not configured_visible({"disabled": True}, "providers")
+    assert configured_visible({"status": "deprecated"}, "providers"), "the old word means nothing here"
 
 
 def test_switching_a_deprecated_model_on_leaves_the_legacy_map_alone(tmp_path):
@@ -207,7 +207,7 @@ def test_switching_a_deprecated_model_on_leaves_the_legacy_map_alone(tmp_path):
     )
     config = OpencodeConfig.load(path)
 
-    assert not config.set_model_enabled("local", "old", True)
+    assert not config.set_model_visible("local", "old", True)
     config.save()
 
     saved = json.loads(path.read_text())
@@ -226,7 +226,7 @@ def test_moving_a_provider_carries_its_own_word_for_off_as_the_new_one(tmp_path)
     )
     config = OpencodeConfig.load(path)
 
-    assert config.set_model_enabled("local", "live", False)
+    assert config.set_model_visible("local", "live", False)
     config.save()
 
     models = json.loads(path.read_text())["providers"]["local"]["models"]
@@ -253,7 +253,7 @@ def test_switching_a_model_off_moves_its_provider_where_opencode_reads_the_mark(
         },
     )
     config = OpencodeConfig.load(path)
-    assert config.set_model_enabled("local", "off", False)
+    assert config.set_model_visible("local", "off", False)
     config.save()
 
     saved = json.loads(path.read_text())
@@ -280,7 +280,7 @@ def test_a_provider_holding_a_key_the_current_map_has_no_place_for_is_left_where
     config = OpencodeConfig.load(path)
 
     with pytest.raises(ConfigError, match="whitelist"):
-        config.set_model_enabled("local", "qwen3.8:27b-mlx", False)
+        config.set_model_visible("local", "qwen3.8:27b-mlx", False)
 
     assert path.read_text() == before, "the file is left alone, and so is the other provider"
     assert config.provider("local").section == "provider"

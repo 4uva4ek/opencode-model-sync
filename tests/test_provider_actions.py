@@ -81,6 +81,38 @@ def rows_of(widget):
     return {row.row.id: row for row in widget.findChildren(window.ModelRowWidget)}
 
 
+@pytest.mark.parametrize("language", ["en", "ru"])
+def test_two_switches_keep_labels_and_change_only_their_own_state(view, language):
+    widget, path = view
+    previous = i18n.language()
+    i18n.set_language(language)
+    try:
+        path.write_text(json.dumps({"providers": {"local": {
+            "settings": {"baseURL": "http://localhost:1234/v1"},
+            "models": {"m": {"capabilities": {"tools": True}}}}}}))
+        widget._reload_config()
+        labels = [i18n.tr(key) for key in ("row.display", "row.tools")]
+        for name in ("model_switch", "tools_switch"):
+            getattr(rows_of(widget)["m"], name).click()
+        row = rows_of(widget)["m"]
+        switches = [row.model_switch, row.tools_switch]
+        assert [control.text() for control in switches] == labels
+        assert all(control.isCheckable() and not control.isChecked() for control in switches)
+        saved = json.loads(path.read_text())["providers"]["local"]["models"]["m"]
+        assert saved == {"disabled": True, "capabilities": {"tools": False}}
+        for name in ("model_switch", "tools_switch"):
+            getattr(rows_of(widget)["m"], name).click()
+        row = rows_of(widget)["m"]
+        assert [control.text() for control in (row.model_switch, row.tools_switch)] == labels
+        assert all(control.isChecked() for control in (row.model_switch, row.tools_switch))
+        widget.busy = True
+        widget.render()
+        row = rows_of(widget)["m"]
+        assert all(not control.isEnabled() for control in (row.model_switch, row.tools_switch))
+    finally:
+        i18n.set_language(previous)
+
+
 def test_the_switch_in_a_row_moves_the_mark_opencode_reads(view):
     """The point of the button: one click instead of opening the settings of opencode."""
     widget, path = view
@@ -97,8 +129,8 @@ def test_the_switch_in_a_row_moves_the_mark_opencode_reads(view):
     widget.render()
 
     rows = rows_of(widget)
-    assert rows["on"].model_switch.text() == i18n.tr("row.on")
-    assert rows["off"].model_switch.text() == i18n.tr("row.off")
+    assert rows["on"].model_switch.isChecked()
+    assert not rows["off"].model_switch.isChecked()
 
     rows["on"].model_switch.click()  # off: the provider moves, and the mark goes with it
     rows_of(widget)["off"].model_switch.click()  # on: only the mark leaves the entry
@@ -110,8 +142,8 @@ def test_the_switch_in_a_row_moves_the_mark_opencode_reads(view):
 
     widget.render()
     rows = rows_of(widget)
-    assert rows["on"].model_switch.text() == i18n.tr("row.off"), "the row says what it became"
-    assert rows["off"].model_switch.text() == i18n.tr("row.on")
+    assert not rows["on"].model_switch.isChecked()
+    assert rows["off"].model_switch.isChecked()
 
 
 @pytest.mark.parametrize("language", ["en", "ru"])

@@ -11,6 +11,7 @@ from PySide6.QtGui import QIcon, QImage, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 _PATHS = {
+    "down": '<path d="M6 9l6 6 6-6"/>',
     "sync": '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/>'
     '<path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/>',
     "refresh": '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/>',
@@ -81,4 +82,11 @@ def check_file(color: str) -> str:
     """Style sheets take images by path, so the checkmark is written to a temp file once."""
     path = Path(tempfile.gettempdir()) / f"opencode-model-sync-check-{color.strip('#')}.svg"
     path.write_text(svg("check", color, 3.0), encoding="utf-8")
+    return path.as_posix()
+
+
+@cache
+def down_file(color: str) -> str:
+    path = Path(tempfile.gettempdir()) / f"opencode-model-sync-down-{color.strip('#')}.svg"
+    path.write_text(svg("down", color), encoding="utf-8")
     return path.as_posix()

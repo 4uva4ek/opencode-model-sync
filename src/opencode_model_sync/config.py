@@ -153,8 +153,10 @@ class OpencodeConfig:
         _as_object(self.data.setdefault(CURRENT, {}))[provider_id] = moved
         return True
 
-    def set_model_enabled(self, provider_id: str, model_id: str, enabled: bool) -> bool:
-        """Switch a model the way opencode's own settings do; True if the provider moved for it.
+    def set_model_visible(self, provider_id: str, model_id: str, enabled: bool) -> bool:
+        """Show or hide a model in the backend catalog; True if the provider moved for it.
+
+        The Desktop dropdown preference is managed separately by OpenCode.
 
         Each map has one word for a switched-off model and ignores the other's, so switching off
         writes ``disabled`` where opencode reads it, in the current map: a provider of the legacy map
@@ -289,7 +291,7 @@ def configured_tools(entry: dict[str, Any]) -> bool | None:
     return tools if isinstance(tools, bool) else None
 
 
-def configured_enabled(entry: dict[str, Any], section: str) -> bool:
+def configured_visible(entry: dict[str, Any], section: str) -> bool:
     """Whether opencode offers a model, which is a different word in each of the two maps.
 
     Measured on opencode 2.1.4: the legacy map listens to ``status: "deprecated"`` and reads a

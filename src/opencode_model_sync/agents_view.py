@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QMessageBox,
     QPlainTextEdit,
     QVBoxLayout,
@@ -46,8 +46,8 @@ class ModelList:
 Models = Callable[[], ModelList]
 
 
-def describe(item: ModelChoice) -> str:
-    parts = [item.provider]
+def describe(item: ModelChoice, *, include_provider: bool = True) -> str:
+    parts = [item.provider] if include_provider else []
     if item.local:
         parts.append(tr("model.local"))
     elif item.free:
@@ -77,7 +77,7 @@ def dialog_buttons(dialog: QDialog, accept_text: str, accept: Callable[[], None]
 
 
 class ModelPicker(QDialog):
-    """A searchable list of the connected models, with filters for free models and tool calling."""
+    """Connected models in collapsible provider groups, with search and filters."""
 
     def __init__(self, parent: QWidget, models: ModelList, current: str) -> None:
         super().__init__(parent)
@@ -85,18 +85,28 @@ class ModelPicker(QDialog):
         self.resize(660, 600)
         self.models = models
         self.chosen = current
+        self.expanded_providers = {current.split("/", 1)[0]} if current else set()
+        self._filling = False
         self.search = QLineEdit()
         self.search.setPlaceholderText(tr("picker.search"))
         self.search.setClearButtonEnabled(True)
         self.free_only = QCheckBox(tr("picker.freeOnly"))
         self.tools_only = QCheckBox(tr("picker.toolsOnly"))
-        self.listing = QListWidget()
+        self.listing = QTreeWidget()
         self.listing.setObjectName("pickerList")
-        self.listing.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.listing.setHeaderHidden(True)
+        self.listing.setColumnCount(1)
+        self.listing.setIndentation(18)
+        self.listing.setExpandsOnDoubleClick(False)
+        self.listing.setVerticalScrollMode(QTreeWidget.ScrollMode.ScrollPerPixel)
         self.listing.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.listing.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.listing.setWordWrap(True)
-        self.listing.itemDoubleClicked.connect(lambda _item: self._accept())
+        self.listing.itemClicked.connect(self._clicked)
+        self.listing.itemDoubleClicked.connect(lambda item, _column: self._accept() if item.parent() else None)
+        self.listing.itemExpanded.connect(self._expansion_changed)
+        self.listing.itemCollapsed.connect(self._expansion_changed)
+        self.listing.currentItemChanged.connect(self._selection_changed)
         self.empty = label(tr("picker.empty"), "hint")
         note = label(models.note, "hint", wrap=True)
 
@@ -108,12 +118,21 @@ class ModelPicker(QDialog):
         filters.addWidget(self.free_only)
         filters.addWidget(self.tools_only)
         filters.addStretch(1)
+        expand = button(tr("picker.expandAll"), "ghost")
+        expand.clicked.connect(self.listing.expandAll)
+        collapse = button(tr("picker.collapseAll"), "ghost")
+        collapse.clicked.connect(self.listing.collapseAll)
+        groups = QHBoxLayout()
+        groups.addWidget(expand)
+        groups.addWidget(collapse)
+        groups.addStretch(1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(10)
         layout.addWidget(self.search)
         layout.addLayout(filters)
+        layout.addLayout(groups)
         layout.addWidget(self.listing, 1)
         layout.addWidget(self.empty)
         layout.addWidget(note)
@@ -123,8 +142,10 @@ class ModelPicker(QDialog):
 
     def _fill(self) -> None:
         words = self.search.text().lower().split()
+        self._filling = True
         self.listing.clear()
         selected = None
+        groups: dict[str, tuple[str, list[ModelChoice]]] = {}
         for item in self.models.items:
             haystack = f"{item.name} {item.ref} {item.provider}".lower()
             if any(word not in haystack for word in words):
@@ -133,20 +154,59 @@ class ModelPicker(QDialog):
                 continue
             if self.tools_only.isChecked() and item.tools is False:
                 continue
-            entry = QListWidgetItem(f"{item.name}   ·   {describe(item)}\n{item.ref}")
-            entry.setData(Qt.ItemDataRole.UserRole, item.ref)
-            entry.setToolTip(item.ref)
-            self.listing.addItem(entry)
-            if item.ref == self.chosen:
-                selected = entry
-        if selected:
+            provider_id = item.ref.split("/", 1)[0]
+            groups.setdefault(provider_id, (item.provider, []))[1].append(item)
+        names = [name for name, _items in groups.values()]
+        for provider_id, (name, items) in sorted(groups.items(), key=lambda pair: (pair[1][0].casefold(), pair[0])):
+            title = f"{name} · {provider_id}" if names.count(name) > 1 else name
+            group = QTreeWidgetItem([f"{title}  ({len(items)})"])
+            group.setData(0, Qt.ItemDataRole.UserRole, provider_id)
+            group.setToolTip(0, provider_id)
+            group.setFlags(group.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            font = group.font(0)
+            font.setBold(True)
+            group.setFont(0, font)
+            self.listing.addTopLevelItem(group)
+            for item in sorted(items, key=lambda item: (item.name.casefold(), item.ref)):
+                details = describe(item, include_provider=False)
+                title = f"{item.name}   ·   {details}" if details else item.name
+                entry = QTreeWidgetItem([f"{title}\n{item.ref}"])
+                entry.setData(0, Qt.ItemDataRole.UserRole, item.ref)
+                entry.setToolTip(0, item.ref)
+                group.addChild(entry)
+                if item.ref == self.chosen:
+                    selected = entry
+            group.setExpanded(bool(words) or provider_id in self.expanded_providers)
+        if selected and selected.parent().isExpanded():
             self.listing.setCurrentItem(selected)
-        self.empty.setVisible(self.listing.count() == 0)
+        self.empty.setVisible(self.listing.topLevelItemCount() == 0)
+        self._filling = False
+
+    def _clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        if item.parent() is None:
+            item.setExpanded(not item.isExpanded())
+
+    def _selection_changed(self, item: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None) -> None:
+        if not self._filling and item and item.parent():
+            self.chosen = item.data(0, Qt.ItemDataRole.UserRole)
+
+    def _expansion_changed(self, group: QTreeWidgetItem) -> None:
+        if self._filling:
+            return
+        if not self.search.text().strip():
+            provider_id = group.data(0, Qt.ItemDataRole.UserRole)
+            if group.isExpanded():
+                self.expanded_providers.add(provider_id)
+            else:
+                self.expanded_providers.discard(provider_id)
+        current = self.listing.currentItem()
+        if not group.isExpanded() and current and current.parent() == group:
+            self.listing.setCurrentItem(None)
 
     def _accept(self) -> None:
         item = self.listing.currentItem()
-        if item:
-            self.chosen = item.data(Qt.ItemDataRole.UserRole)
+        if item and item.parent() and item.parent().isExpanded():
+            self.chosen = item.data(0, Qt.ItemDataRole.UserRole)
             self.accept()
 
 

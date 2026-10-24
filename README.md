@@ -10,8 +10,10 @@ A small desktop app for Linux, macOS (Apple Silicon) and Windows. It asks your m
 - Works with Ollama, LM Studio, vLLM, llama.cpp and any OpenAI-compatible server, local or on your network.
 - For Ollama and LM Studio it reads the real context size and tool-calling support. Embedding models are skipped.
 - **Sync** adds new models. **Remove from config** removes the models you select, for example ones that are gone from the server.
-- The tool-calling label of a model in the config is a switch. Turn it off for a model that says it supports tools but handles them poorly.
-- The **on/off** label is the same switch opencode's own settings have, so a model that should not be offered is switched off without leaving this window. opencode then drops it from its list and its model picker; the model keeps its place and its settings in the config, and switched back on it is offered again. The switch lives in the `providers` section of the config, so switching off the first model of a provider written in the older `provider` section moves that provider over with all its settings — the same migration opencode does itself, and the banner says when it happens.
+- Two independent buttons keep the same labels in both states. Highlighted means on; muted means off:
+  - **Display** shows or hides the model in OpenCode's catalog through the config, preserving its settings.
+  - **Tools** enables or disables tool-calling support.
+- Only one Model Sync instance runs per user. Launching again brings the existing window forward, including from the tray. A crashed instance does not prevent the next launch.
 - Finds local servers on their default ports that are not in the config yet and offers to add them.
 - The config only changes when you press a button. A backup `opencode.json.bak-model-sync-*` is written next to it before the first change.
 - Rename or remove a provider from its **⋯** menu. Renaming keeps its ID; removing also clears model selections that refer to it.
@@ -20,11 +22,22 @@ A small desktop app for Linux, macOS (Apple Silicon) and Windows. It asks your m
 
 Models go into the config section where the provider is defined, the legacy `provider` map or the newer `providers` map. If one ID ended up in both, opencode would ignore the legacy entry together with its server address.
 
-`.jsonc` files with comments are read but never rewritten, so the comments are not lost.
+The **Settings** and **MCP** tabs can edit `.jsonc` while retaining comments and unchanged values. The existing provider sync and agent editing actions still refuse to rewrite files containing comments.
+
+## Settings and MCP
+
+Five independent tabs: Providers, Workspaces, Agents and teams, MCP, and Settings.
+
+- Settings covers the `opencode.json` schema for OpenCode 2.1.4: 29 current sections with nested fields and 19 V1 compatibility sections. Categories and search include experimental settings such as `experimental.subagent_depth`.
+- Finite choices use dropdowns; nested objects and ordered lists use forms. Arbitrary third-party SDK and plugin data uses JSON. Labels and hover descriptions support English and Russian.
+- Not set leaves the field absent, preserving inheritance and OpenCode defaults. Project configuration and managed policies can override global values.
+- MCP provides local and remote server creation, editing, removal and enable checkboxes backed by `disabled`. Server names stay constant; global timeouts expand separately.
+- Save validates the schema, backs up the file, merges unrelated external edits and refuses conflicting changes. Drafts survive tab and language switches.
+- Notices during editing and after saving explain when changes take effect. Server startup settings warn about a restart; integrations may need reconnection. OpenCode is never closed or restarted automatically.
 
 ## Agents and teams
 
-The **Agents and teams** page shows which model each opencode agent runs on and lets you change it.
+The separate **Agents and teams** tab shows which model each opencode agent runs on and lets you change it. The model picker groups models by provider in collapsible sections.
 
 - **Build a team**: a planner on a strong model plus several workers (coder, tester, reviewer, researcher or your own), each on its own model. The planner becomes a primary agent that may hand work only to its workers. With "only hands out work" checked, it cannot edit files or run commands. The workers become subagents, and each gets only the access its role needs: the tester cannot edit files, the reviewer and the researcher change nothing.
 - **New agent** and **Edit**: name, description, kind (primary, subagent or both), model, instructions, temperature, access to file edits, commands and the web, and the subagents the agent may hand work to. The built-in agents `build`, `plan`, `general` and `explore` can be set up under their own names.

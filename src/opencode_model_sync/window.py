@@ -1,4 +1,4 @@
-"""The main window: providers and agents on the left, the selected page on the right."""
+"""Main navigation: providers, workspaces, agents, MCP and configuration."""
 
 from __future__ import annotations
 
@@ -38,6 +38,8 @@ from .discovery import Discovery, ModelRow, RemoteModel, Suggestion
 from .i18n import tr
 from .widgets import ElidedLabel, button, label, pill, repolish, scrolled, tokens
 from .workspaces_view import WorkspacesPanel
+from .settings_view import SettingsPanel
+from .settings_text import t as settings_text
 
 # opencode wants to be told twice before it drops a worktree that holds changes.
 FORCE_NEEDED = "force"
@@ -165,15 +167,16 @@ class SuggestionCard(QFrame):
 class ModelRowWidget(QFrame):
     toggled = Signal()
     tools_toggled = Signal(str, bool)
-    enabled_toggled = Signal(str, bool)
+    visibility_toggled = Signal(str, bool)
 
     def __init__(self, row: ModelRow, checked: bool, last: bool) -> None:
         super().__init__()
         self.row = row
         self.setObjectName("modelRow")
         self.setProperty("last", last)
-        self.setProperty("off", not row.enabled)
+        self.setProperty("off", not row.visible)
         self.model_switch: QPushButton | None = None  # only a model in the config can be switched
+        self.tools_switch: QPushButton | None = None
         self.check = QCheckBox()
         self.check.setCursor(Qt.CursorShape.PointingHandCursor)
         self.check.setChecked(checked)
@@ -196,34 +199,16 @@ class ModelRowWidget(QFrame):
             chip.setToolTip(tr("row.context", count=f"{remote.context:,}".replace(",", " ")))
             layout.addWidget(chip)
         if row.in_config:
-            # The switch opencode's own settings have: off means it neither offers nor runs the model.
-            on = row.enabled
-            switch = QPushButton(tr("row.on") if on else tr("row.off"))
-            switch.setObjectName("pill")
-            switch.setProperty("tone", "muted" if on else "warning")
-            switch.setCursor(Qt.CursorShape.PointingHandCursor)
-            switch.setToolTip(
-                (tr("row.onHint") + "\n" + tr("row.onToggle"))
-                if on
-                else (tr("row.offHint") + "\n" + tr("row.offToggle"))
-            )
-            switch.clicked.connect(lambda: self.enabled_toggled.emit(row.id, not on))
-            self.model_switch = switch
-            layout.addWidget(switch)
+            self.model_switch = self._switch("row.display", row.visible,
+                tr("row.visibleHint" if row.visible else "row.hiddenHint"))
+            self.model_switch.clicked.connect(lambda value: self.visibility_toggled.emit(row.id, value))
+            layout.addWidget(self.model_switch)
 
-            # opencode treats a model without an explicit setting as able to call tools.
-            enabled = row.tools is not False
-            toggle = QPushButton(tr("row.tools") if enabled else tr("row.noTools"))
-            toggle.setObjectName("pill")
-            toggle.setProperty("tone", "muted" if enabled else "warning")
-            toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-            toggle.setToolTip(
-                tr("row.toolsHint") + "\n" + tr("row.toolsToggle")
-                if enabled
-                else tr("row.noToolsHint") + "\n" + tr("row.noToolsToggle")
-            )
-            toggle.clicked.connect(lambda: self.tools_toggled.emit(row.id, not enabled))
-            layout.addWidget(toggle)
+            # An unspecified capability retains the existing default of tools enabled.
+            self.tools_switch = self._switch("row.tools", row.tools is not False,
+                tr("row.toolsHint") if row.tools is not False else tr("row.noToolsHint"))
+            self.tools_switch.clicked.connect(lambda value: self.tools_toggled.emit(row.id, value))
+            layout.addWidget(self.tools_switch)
         elif row.tools is not None:
             tools = pill(tr("row.tools") if row.tools else tr("row.noTools"), "muted" if row.tools else "warning")
             tools.setToolTip(tr("row.toolsHint") if row.tools else tr("row.noToolsHint"))
@@ -234,6 +219,17 @@ class ModelRowWidget(QFrame):
             "missing": (tr("status.missing"), "warning"),
         }[row.status]
         layout.addWidget(pill(*status))
+
+    @staticmethod
+    def _switch(key: str, checked: bool, hint: str) -> QPushButton:
+        control = QPushButton(tr(key))
+        control.setObjectName("modelToggle")
+        control.setCheckable(True)
+        control.setChecked(checked)
+        control.setCursor(Qt.CursorShape.PointingHandCursor)
+        control.setToolTip(hint)
+        control.setAccessibleName(tr(key))
+        return control
 
 
 class AddProviderDialog(QDialog):
@@ -351,8 +347,7 @@ class MainWindow(QMainWindow):
         self.selected: str | None = None
         self.checked: dict[str, set[str]] = {}
         self.busy = False
-        self.page = "models"  # or "agents"
-        self.tab = "providers"  # or "workspaces"
+        self.tab = "providers"
         # Workspaces of opencode; None while the list is loading.
         self.ws_items: list[workspaces.Workspace] | None = None
         self.ws_note = ""
@@ -388,18 +383,29 @@ class MainWindow(QMainWindow):
         self.workspaces_layout.setContentsMargins(28, 24, 28, 22)
         self.workspaces_layout.setSpacing(14)
 
+        self.agents_page = QWidget()
+        self.agents_layout = QVBoxLayout(self.agents_page)
+        self.agents_layout.setContentsMargins(28, 24, 28, 22)
+        self.mcp_page = SettingsPanel(self.config_file, self.model_list, mcp=True)
+        self.settings_page = SettingsPanel(self.config_file, self.model_list)
+        self.mcp_page.saved.connect(self._reload_config)
+        self.settings_page.saved.connect(self._reload_config)
+
         self.tabs = QTabBar()
         self.tabs.setObjectName("tabs")
         self.tabs.setExpanding(False)
         self.tabs.setDrawBase(False)
         self.tabs.setMovable(False)
-        self.tabs.addTab("")
-        self.tabs.addTab("")
+        for _ in range(5):
+            self.tabs.addTab("")
         self.tabs.currentChanged.connect(self._show_tab)
 
         self.stack = QStackedWidget()
         self.stack.addWidget(providers)
         self.stack.addWidget(self.workspaces_page)
+        self.stack.addWidget(self.agents_page)
+        self.stack.addWidget(self.mcp_page)
+        self.stack.addWidget(self.settings_page)
 
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -465,8 +471,7 @@ class MainWindow(QMainWindow):
 
     def _catalog_loaded(self, data: dict) -> None:
         self.catalog = data
-        if self.page == "agents":
-            self.render_content()
+        self.render_agents()
 
     def model_list(self) -> ModelList:
         if self.connected is None:
@@ -501,6 +506,8 @@ class MainWindow(QMainWindow):
         active = {provider.id for provider in self.config.providers()}
         self.results = {key: value for key, value in self.results.items() if key in active}
         self.checked = {key: value for key, value in self.checked.items() if key in active}
+        self.settings_page.reload()
+        self.mcp_page.reload()
         self.render()
 
     # ---- actions
@@ -559,6 +566,8 @@ class MainWindow(QMainWindow):
             self._write(provider_id, [], remove, tr("banner.removed", provider=provider.title, count=len(remove)))
 
     def set_tools(self, provider_id: str, model_id: str, enabled: bool) -> None:
+        if self.busy:
+            return
         def work() -> None:
             config = OpencodeConfig.load(self.config_file)
             config.set_model_tools(provider_id, model_id, enabled)
@@ -566,13 +575,15 @@ class MainWindow(QMainWindow):
 
         self._run_write(work, tr("banner.toolsOn" if enabled else "banner.toolsOff", model=model_id))
 
-    def set_enabled(self, provider_id: str, model_id: str, enabled: bool) -> None:
+    def set_visible(self, provider_id: str, model_id: str, enabled: bool) -> None:
+        if self.busy:
+            return
         provider = self.config.provider(provider_id)
         title = provider.title if provider else provider_id
 
         def work() -> str | None:
             config = OpencodeConfig.load(self.config_file)
-            moved = config.set_model_enabled(provider_id, model_id, enabled)
+            moved = config.set_model_visible(provider_id, model_id, enabled)
             config.save()
             # A provider that changed section is worth saying out loud: the config looks different now.
             return tr("banner.modelOffMoved", model=model_id, provider=title) if moved and not enabled else None
@@ -869,12 +880,6 @@ class MainWindow(QMainWindow):
         self.provider_list.setSpacing(2)
         layout.addWidget(self.provider_list, 1)
 
-        self.agents_label = label(tr("sidebar.agents"), "sectionLabel")
-        layout.addWidget(self.agents_label)
-        self.agents_box = QVBoxLayout()
-        self.agents_box.setContentsMargins(0, 0, 0, 6)
-        layout.addLayout(self.agents_box)
-
         self.suggestion_box = QVBoxLayout()
         self.suggestion_box.setSpacing(6)
         layout.addLayout(self.suggestion_box)
@@ -886,7 +891,6 @@ class MainWindow(QMainWindow):
         bottom = QHBoxLayout()
         bottom.addWidget(self.add_button)
         bottom.addStretch(1)
-        bottom.addWidget(self.language_button)
         layout.addLayout(bottom)
         return sidebar
 
@@ -898,6 +902,7 @@ class MainWindow(QMainWindow):
         row.setSpacing(8)
         row.addWidget(self.tabs)
         row.addStretch(1)
+        row.addWidget(self.language_button)
         return strip
 
     def _banner_slot(self) -> QWidget:
@@ -914,10 +919,12 @@ class MainWindow(QMainWindow):
         self.banner_slot.parentWidget().hide()
 
     def _show_tab(self, index: int) -> None:
-        self.tab = "workspaces" if index == 1 else "providers"
+        self.tab = ("providers", "workspaces", "agents", "mcp", "settings")[index]
         self.stack.setCurrentIndex(index)
         if self.tab == "workspaces" and not self.ws_loaded:
             self.refresh_workspaces()
+        if self.tab == "settings":
+            self.settings_page.refresh_suggestions()
 
     def switch_language(self) -> None:
         i18n.set_language("en" if i18n.language() == "ru" else "ru")
@@ -927,9 +934,23 @@ class MainWindow(QMainWindow):
     def render(self) -> None:
         self.tabs.setTabText(0, tr("tab.providers"))
         self.tabs.setTabText(1, tr("tab.workspaces"))
+        self.tabs.setTabText(2, tr("nav.agents"))
+        self.tabs.setTabText(3, "MCP")
+        self.tabs.setTabText(4, settings_text("title"))
         self.render_sidebar()
         self.render_content()
         self.render_workspaces()
+        self.render_agents()
+        for panel in (self.settings_page, self.mcp_page):
+            panel.setEnabled(not self.busy)
+            panel.retranslate()
+
+    def confirm_quit(self) -> bool:
+        if not (self.settings_page.dirty or self.mcp_page.dirty):
+            return True
+        return QMessageBox.question(self, settings_text("title"), settings_text("quit"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
 
     def render_sidebar(self) -> None:
         self.brand_sub.setText(tr("app.brandSub"))
@@ -942,22 +963,12 @@ class MainWindow(QMainWindow):
         self.provider_list.clear()
         for provider in self.managed():
             card = ProviderCard(provider, self.results.get(provider.id))
-            card.set_selected(self.page == "models" and provider.id == self.selected)
+            card.set_selected(provider.id == self.selected)
             card.clicked.connect(self._select)
             item = QListWidgetItem()
             item.setSizeHint(card.sizeHint())
             self.provider_list.addItem(item)
             self.provider_list.setItemWidget(item, card)
-
-        self.agents_label.setText(tr("sidebar.agents"))
-        while self.agents_box.count():
-            widget = self.agents_box.takeAt(0).widget()
-            if widget:
-                widget.deleteLater()
-        nav = NavCard(tr("nav.agents"), tr("nav.agentsHint"), "users", len(agents.agents(self.config)))
-        nav.set_selected(self.page == "agents")
-        nav.clicked.connect(self._open_agents)
-        self.agents_box.addWidget(nav)
 
         while self.suggestion_box.count():
             widget = self.suggestion_box.takeAt(0).widget()
@@ -972,26 +983,16 @@ class MainWindow(QMainWindow):
 
     def _select(self, provider_id: str) -> None:
         self.selected = provider_id
-        self.page = "models"
         self.render()
 
     def _open_agents(self) -> None:
-        self.page = "agents"
-        self.render()
+        self.tabs.setCurrentIndex(2)
 
     def render_content(self) -> None:
         layout = self.content_layout
         _clear(layout)
 
         layout.addLayout(self._top_bar())
-        if self.page == "agents":
-            panel = AgentsPanel(agents.agents(self.config), agents.default_agent(self.config), self.model_list(), self.busy)
-            panel.edit.connect(self.edit_agent)
-            panel.remove.connect(self.remove_agent)
-            panel.new_agent.connect(lambda: self.edit_agent())
-            panel.new_team.connect(self.build_team)
-            layout.addWidget(panel, 1)
-            return
         provider = self.config.provider(self.selected) if self.selected else None
         if not provider:
             empty = label(
@@ -1005,6 +1006,15 @@ class MainWindow(QMainWindow):
         layout.addLayout(self._provider_header(provider, result))
         layout.addWidget(self._model_list(provider, result), 1)
         layout.addLayout(self._footer(provider, result))
+
+    def render_agents(self) -> None:
+        _clear(self.agents_layout)
+        panel = AgentsPanel(agents.agents(self.config), agents.default_agent(self.config), self.model_list(), self.busy)
+        panel.edit.connect(self.edit_agent)
+        panel.remove.connect(self.remove_agent)
+        panel.new_agent.connect(lambda: self.edit_agent())
+        panel.new_team.connect(self.build_team)
+        self.agents_layout.addWidget(panel, 1)
 
     def render_workspaces(self) -> None:
         self.excluded = workspaces.read_excluded()
@@ -1105,9 +1115,10 @@ class MainWindow(QMainWindow):
         chosen = self.checked.setdefault(provider.id, set())
         for index, row in enumerate(rows):
             widget = ModelRowWidget(row, row.id in chosen, index == len(rows) - 1)
+            widget.setEnabled(not self.busy)
             widget.toggled.connect(lambda w=widget, pid=provider.id: self._toggle(pid, w))
             widget.tools_toggled.connect(lambda model, value, pid=provider.id: self.set_tools(pid, model, value))
-            widget.enabled_toggled.connect(lambda model, value, pid=provider.id: self.set_enabled(pid, model, value))
+            widget.visibility_toggled.connect(lambda model, value, pid=provider.id: self.set_visible(pid, model, value))
             column.addWidget(widget)
         column.addStretch(1)
         return scrolled(container)

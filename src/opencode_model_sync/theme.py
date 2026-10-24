@@ -79,6 +79,8 @@ def current() -> Palette:
 
 
 def style_sheet(p: Palette, check: str) -> str:
+    from .icons import down_file
+    arrow = down_file(p.muted)
     return f"""
 * {{
     font-size: 13px;
@@ -166,6 +168,11 @@ QCheckBox::indicator:disabled {{ border-color: {p.border}; }}
 #pill {{ border-radius: 9px; padding: 2px 9px; font-size: 11px; font-weight: 600; }}
 QPushButton#pill {{ border: 1px solid transparent; }}
 QPushButton#pill:hover {{ border-color: {p.faint}; }}
+QPushButton#modelToggle {{ border-radius: 9px; padding: 4px 9px; font-size: 11px;
+    color: {p.muted}; background: {p.surface_hover}; border: 1px solid {p.border}; }}
+QPushButton#modelToggle:checked {{ color: {p.accent}; background: {p.accent_soft}; border-color: {p.accent}; }}
+QPushButton#modelToggle:hover {{ border-color: {p.accent}; }}
+QPushButton#modelToggle:disabled {{ color: {p.faint}; border-color: {p.border}; }}
 #pill[tone="accent"] {{ color: {p.accent}; background: {p.accent_soft}; }}
 #pill[tone="success"] {{ color: {p.success}; background: {p.success_soft}; }}
 #pill[tone="warning"] {{ color: {p.warning}; background: {p.warning_soft}; }}
@@ -220,6 +227,7 @@ QComboBox {{
 QComboBox:hover {{ background: {p.surface_hover}; }}
 QComboBox:disabled {{ color: {p.faint}; }}
 QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox::down-arrow {{ image: url({arrow}); width: 14px; height: 14px; }}
 QComboBox QAbstractItemView {{
     background: {p.surface};
     border: 1px solid {p.border};
@@ -228,10 +236,21 @@ QComboBox QAbstractItemView {{
     outline: none;
 }}
 #workerRow {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px; }}
-QListWidget#pickerList {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px; padding: 4px; }}
-QListWidget#pickerList::item {{ padding: 7px 10px; border-radius: 6px; }}
-QListWidget#pickerList::item:hover {{ background: {p.surface_hover}; }}
-QListWidget#pickerList::item:selected {{ background: {p.accent_soft}; color: {p.text}; }}
+#settingRow {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px; }}
+#settingsNotice {{ color: {p.warning}; background: {p.warning_soft}; border-radius: 8px; padding: 10px; }}
+QListWidget#settingsCategories {{ background: transparent; border: none; outline: none; }}
+QListWidget#settingsCategories::item {{ padding: 10px 8px; border-radius: 7px; }}
+QListWidget#settingsCategories::item:selected {{ background: {p.accent_soft}; color: {p.accent}; }}
+QListWidget#settingsCollection {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px; padding: 5px; }}
+QListWidget#settingsCollection::item {{ padding: 9px; border-radius: 6px; }}
+QListWidget#settingsCollection::item:selected {{ background: {p.accent_soft}; color: {p.text}; }}
+QListWidget#settingsCollection::indicator {{ width: 16px; height: 16px; border-radius: 4px; border: 1px solid {p.faint}; }}
+QListWidget#settingsCollection::indicator:checked {{ background: {p.accent}; border-color: {p.accent}; image: url({check}); }}
+QTreeWidget#pickerList {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px; padding: 4px; outline: none; }}
+QTreeWidget#pickerList::item {{ padding: 7px 10px; border: none; border-radius: 6px; }}
+QTreeWidget#pickerList::item:hover {{ background: {p.surface_hover}; }}
+QTreeWidget#pickerList::item:selected {{ background: {p.accent_soft}; color: {p.text}; }}
+QTreeWidget#pickerList::branch:selected {{ background: {p.accent_soft}; }}
 #fieldLabel {{ color: {p.muted}; font-size: 12px; font-weight: 600; }}
 #hint {{ color: {p.faint}; font-size: 12px; }}
 #error {{ color: {p.danger}; font-size: 12px; }}

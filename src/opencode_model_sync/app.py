@@ -6,10 +6,11 @@ import sys
 
 from PySide6.QtCore import QLocale, QSettings, Qt
 from PySide6.QtGui import QAction, QCloseEvent
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import i18n, icons, theme
 from .i18n import tr
+from .instance import SingleInstance
 from .window import MainWindow
 
 APP_ID = "opencode-model-sync"
@@ -25,7 +26,7 @@ class TrayWindow(MainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if not self.tray or not self.tray.isVisible():
-            event.accept()
+            event.accept() if self.confirm_quit() else event.ignore()
             return
         event.ignore()
         self.hide()
@@ -44,6 +45,13 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("OpenCode Model Sync")
     app.setOrganizationName(APP_ID)
+    try:
+        instance = SingleInstance()
+        if not instance.acquire():
+            return 0
+    except (OSError, RuntimeError) as error:
+        QMessageBox.critical(None, "OpenCode Model Sync", str(error))
+        return 1
     app.setDesktopFileName(APP_ID)
     app.setWindowIcon(icons.logo())
     app.setStyle("Fusion")
@@ -54,6 +62,17 @@ def main() -> int:
     tray = QSystemTrayIcon(icons.logo()) if QSystemTrayIcon.isSystemTrayAvailable() else None
     window = TrayWindow(tray)
 
+    def show_window() -> None:
+        if window.isMinimized():
+            window.showNormal()
+        else:
+            window.show()
+        window.raise_()
+        window.activateWindow()
+
+    instance.activated.connect(show_window)
+    app.aboutToQuit.connect(instance.close)
+
     def restyle(_scheme: object) -> None:
         apply_theme(app)
         icons.icon.cache_clear()
@@ -63,18 +82,13 @@ def main() -> int:
     window.language_changed.connect(lambda: settings.setValue("language", i18n.language()))
 
     if tray:
-        def show_window() -> None:
-            window.showNormal()
-            window.raise_()
-            window.activateWindow()
-
         menu = QMenu()
         open_action = QAction(tr("tray.open"), menu)
         open_action.triggered.connect(show_window)
         sync_action = QAction(tr("tray.syncAll"), menu)
         sync_action.triggered.connect(window.sync_all)
         quit_action = QAction(tr("tray.quit"), menu)
-        quit_action.triggered.connect(app.quit)
+        quit_action.triggered.connect(lambda: app.quit() if window.confirm_quit() else None)
         menu.addAction(open_action)
         menu.addAction(sync_action)
         menu.addSeparator()
@@ -96,4 +110,7 @@ def main() -> int:
         app.setQuitOnLastWindowClosed(False)
 
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        instance.close()

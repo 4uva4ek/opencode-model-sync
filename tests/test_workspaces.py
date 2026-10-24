@@ -415,6 +415,9 @@ def test_the_workspaces_tab_opens_with_the_list_of_opencode(view):
     assert [widget.tabs.tabText(index) for index in range(widget.tabs.count())] == [
         window.tr("tab.providers"),
         window.tr("tab.workspaces"),
+        window.tr("nav.agents"),
+        "MCP",
+        window.settings_text("title"),
     ]
     assert widget.tab == "workspaces"
     assert widget.stack.currentIndex() == 1

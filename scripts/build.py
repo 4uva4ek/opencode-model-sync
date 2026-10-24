@@ -86,9 +86,9 @@ def main() -> None:
             "dev.opencode-model-sync",
             "--paths",
             str(ROOT / "src"),
-            # Only Widgets, Gui, Core and Svg are used; leaving the rest out keeps the bundle small.
-            "--exclude-module",
-            "PySide6.QtNetwork",
+            "--add-data",
+            f"{ROOT / 'src' / 'opencode_model_sync' / 'settings_schema.json'}{os.pathsep}opencode_model_sync",
+            # QtNetwork supplies the local socket used to activate the running instance.
             "--exclude-module",
             "PySide6.QtQml",
             "--exclude-module",
