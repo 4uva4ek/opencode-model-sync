@@ -94,18 +94,18 @@ def test_save_backs_up_once_and_keeps_other_keys(tmp_path):
     assert json.loads(path.read_text())["theme"] == "dark"
 
 
-def test_add_provider_uses_the_current_openai_compatible_shape(tmp_path):
+def test_add_provider_uses_the_documented_openai_compatible_shape(tmp_path):
     config = OpencodeConfig.load(tmp_path / "opencode.json")
     config.add_provider("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1/", "secret")
     config.save()
     saved = json.loads((tmp_path / "opencode.json").read_text())
-    assert saved["providers"]["lmstudio"] == {
-        "package": "aisdk:@ai-sdk/openai-compatible",
+    assert saved["provider"]["lmstudio"] == {
+        "npm": "@ai-sdk/openai-compatible",
         "name": "LM Studio",
-        "settings": {"baseURL": "http://127.0.0.1:1234/v1", "apiKey": "secret"},
+        "options": {"baseURL": "http://127.0.0.1:1234/v1", "apiKey": "secret"},
         "models": {},
     }
-    assert "provider" not in saved, "a new provider has no reason to start in the legacy map"
+    assert "providers" not in saved
     with pytest.raises(ConfigError):
         config.add_provider("lmstudio", "again", "http://x", None)
     with pytest.raises(ConfigError):
@@ -226,7 +226,8 @@ def test_moving_a_provider_carries_its_own_word_for_off_as_the_new_one(tmp_path)
     )
     config = OpencodeConfig.load(path)
 
-    assert config.set_model_visible("local", "live", False)
+    assert config.move_to_current_map("local")
+    assert not config.set_model_visible("local", "live", False)
     config.save()
 
     models = json.loads(path.read_text())["providers"]["local"]["models"]
@@ -234,56 +235,41 @@ def test_moving_a_provider_carries_its_own_word_for_off_as_the_new_one(tmp_path)
     assert models["live"] == {"disabled": True}
 
 
-def test_switching_a_model_off_moves_its_provider_where_opencode_reads_the_mark(tmp_path):
-    """Measured on opencode 2.1.4: a ``disabled`` of the legacy map is read as nothing at all,
-    and a half-written entry of the current map leaves the provider without its server. So the
-    whole definition travels over, in the words the current map uses."""
-    path = write(
-        tmp_path / "opencode.json",
-        {
-            "provider": {
-                "local": {
-                    "npm": "@ai-sdk/openai-compatible",
-                    "name": "Local",
-                    "options": {"baseURL": "http://h/v1", "apiKey": "k", "timeout": 30},
-                    "models": {"on": {"tool_call": False, "limit": {"context": 100, "output": 50}}, "off": {}},
-                }
-            },
-            "model": "local/on",
-        },
-    )
+@pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
+def test_add_sync_and_toggle_preserve_documented_provider_format(tmp_path, monkeypatch, platform):
+    import sys
+    monkeypatch.setattr(sys, "platform", platform)
+    path = write(tmp_path / "opencode.json", {"model": "strata-pc/model"})
     config = OpencodeConfig.load(path)
-    assert config.set_model_visible("local", "off", False)
+    config.add_provider("strata-pc", "Strata PC", "http://localhost:1234/v1/", "key")
+    config.add_models("strata-pc", {"model": config.model_entry("strata-pc", "Model", 8192, True)})
     config.save()
-
+    original = json.loads(path.read_text())["provider"]["strata-pc"]
+    assert original["npm"] == "@ai-sdk/openai-compatible"
+    assert original["options"] == {"baseURL": "http://localhost:1234/v1", "apiKey": "key"}
+    assert original["models"]["model"]["tool_call"] is True
+    assert not config.set_model_visible("strata-pc", "model", False)
+    config.save()
     saved = json.loads(path.read_text())
-    assert "provider" not in saved, "and it does not stay behind to be read as the truth"
-    assert saved["model"] == "local/on", "the rest of the config is not touched"
-    assert saved["providers"]["local"] == {
-        "name": "Local",
-        "package": "aisdk:@ai-sdk/openai-compatible",
-        "settings": {"baseURL": "http://h/v1", "apiKey": "k", "timeout": 30},
-        "models": {
-            "on": {"capabilities": {"tools": False}, "limit": {"context": 100, "output": 50}},
-            "off": {"disabled": True},
-        },
-    }
+    assert "providers" not in saved
+    assert saved["model"] == "strata-pc/model"
+    assert saved["provider"]["strata-pc"]["models"]["model"]["status"] == "deprecated"
+    assert not config.set_model_visible("strata-pc", "model", True)
+    config.save()
+    assert json.loads(path.read_text())["provider"]["strata-pc"] == original
+    assert len(list(tmp_path.glob("opencode.json.bak-model-sync-*"))) == 1
 
 
-def test_a_provider_holding_a_key_the_current_map_has_no_place_for_is_left_where_it_is(tmp_path):
-    """Refusing to switch is better than rewriting a provider out of its own settings."""
-    path = write(
-        tmp_path / "opencode.json",
-        {"provider": {"local": {**LEGACY_MAC, "whitelist": ["one"]}}, "providers": {"other": LEGACY_MAC}},
-    )
-    before = path.read_text()
+def test_visibility_keeps_unrecognized_provider_fields(tmp_path):
+    path = write(tmp_path / "opencode.json", {
+        "provider": {"local": {**LEGACY_MAC, "whitelist": ["one"]}},
+    })
     config = OpencodeConfig.load(path)
-
-    with pytest.raises(ConfigError, match="whitelist"):
-        config.set_model_visible("local", "qwen3.8:27b-mlx", False)
-
-    assert path.read_text() == before, "the file is left alone, and so is the other provider"
-    assert config.provider("local").section == "provider"
+    assert not config.set_model_visible("local", "qwen3.8:27b-mlx", False)
+    config.save()
+    saved = json.loads(path.read_text())
+    assert saved["provider"]["local"]["whitelist"] == ["one"]
+    assert "providers" not in saved
 
 
 @pytest.mark.parametrize("section", ["provider", "providers"])

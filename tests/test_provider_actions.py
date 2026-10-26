@@ -113,7 +113,7 @@ def test_two_switches_keep_labels_and_change_only_their_own_state(view, language
         i18n.set_language(previous)
 
 
-def test_the_switch_in_a_row_moves_the_mark_opencode_reads(view):
+def test_the_switch_in_a_row_preserves_the_provider_format(view):
     """The point of the button: one click instead of opening the settings of opencode."""
     widget, path = view
     path.write_text(
@@ -132,13 +132,13 @@ def test_the_switch_in_a_row_moves_the_mark_opencode_reads(view):
     assert rows["on"].model_switch.isChecked()
     assert not rows["off"].model_switch.isChecked()
 
-    rows["on"].model_switch.click()  # off: the provider moves, and the mark goes with it
+    rows["on"].model_switch.click()  # off: keep the provider format
     rows_of(widget)["off"].model_switch.click()  # on: only the mark leaves the entry
     saved = json.loads(path.read_text())
-    assert list(saved["providers"]["local"]["models"]) == ["on", "off"]
-    assert saved["providers"]["local"]["models"]["on"] == {"capabilities": {"tools": True}, "disabled": True}
-    assert saved["providers"]["local"]["models"]["off"] == {}
-    assert "provider" not in saved
+    assert list(saved["provider"]["local"]["models"]) == ["on", "off"]
+    assert saved["provider"]["local"]["models"]["on"] == {"tool_call": True, "status": "deprecated"}
+    assert saved["provider"]["local"]["models"]["off"] == {}
+    assert "providers" not in saved
 
     widget.render()
     rows = rows_of(widget)

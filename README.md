@@ -22,7 +22,7 @@ A small desktop app for Linux, macOS (Apple Silicon) and Windows. It asks your m
 - The **Workspaces** tab lists the folders opencode works in and cleans up the rows that are stuck there.
 - Lives in the tray. Light or dark theme follows the system. Russian and English interface.
 
-Models go into the config section where the provider is defined, the legacy `provider` map or the newer `providers` map. If one ID ended up in both, opencode would ignore the legacy entry together with its server address.
+New providers use the documented `provider` map with `npm` and `options` on every OS. Model edits and display switches preserve that format. Existing `providers` entries are retained for compatibility; they are not automatically migrated.
 
 The **Settings** and **MCP** tabs can edit `.jsonc` while retaining comments and unchanged values. The existing provider sync and agent editing actions still refuse to rewrite files containing comments.
 

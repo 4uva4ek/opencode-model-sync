@@ -1,14 +1,9 @@
 """Reading and writing the global opencode config.
 
-opencode reads ``opencode.json`` and ``opencode.jsonc`` from its config directory and lets the later
-name win. Providers live in two maps: the legacy ``provider`` map (``npm`` + ``options``) and the
-current ``providers`` map (``package`` + ``settings``). When one ID appears in both, opencode replaces
-the legacy entry with the current one wholesale, so every edit here goes to the entry opencode uses.
-
-The two maps do not know the same settings either. Only the current map is asked whether a model is
-switched off: a ``disabled`` written into the legacy map is read as nothing at all, which is why a
-model is switched through :meth:`OpencodeConfig.move_to_current_map` and why a new provider starts in
-the current map. The translation lives here too, in the words opencode's own migration uses.
+New providers use the documented ``provider`` / ``npm`` / ``options`` format on
+all platforms. Existing ``providers`` entries remain readable for compatibility
+with configurations that already use that format. Ordinary model edits never
+migrate a provider between formats.
 """
 
 from __future__ import annotations
@@ -154,40 +149,34 @@ class OpencodeConfig:
         return True
 
     def set_model_visible(self, provider_id: str, model_id: str, enabled: bool) -> bool:
-        """Show or hide a model in the backend catalog; True if the provider moved for it.
+        """Show or hide a model without changing its provider's config format.
 
-        The Desktop dropdown preference is managed separately by OpenCode.
-
-        Each map has one word for a switched-off model and ignores the other's, so switching off
-        writes ``disabled`` where opencode reads it, in the current map: a provider of the legacy map
-        is moved there first, because that word means nothing where it is written. Switching back on
-        only has to clear the word its own map reads, so a provider that was deprecated by hand is
-        not moved for nothing, and no ``disabled: false`` is left behind either way.
+        Return False for compatibility with callers that report provider migrations.
         """
-        moved = self.move_to_current_map(provider_id) if not enabled else False
         entry = self._model(provider_id, model_id)
         if enabled:
             entry.pop("disabled", None)
             if entry.get("status") == "deprecated":
                 entry.pop("status", None)
+        elif self._section(provider_id) == LEGACY:
+            entry["status"] = "deprecated"
         else:
             entry["disabled"] = True
-        return moved
+        return False
 
     def add_provider(self, provider_id: str, name: str, base_url: str, api_key: str | None) -> None:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", provider_id):
             raise ConfigError(tr("error.badId"))
         if self.provider(provider_id):
             raise ConfigError(tr("error.exists", id=provider_id))
-        # The current map is the one that knows which of its models opencode should offer, so a new
-        # provider starts there rather than in the legacy map it would later have to leave.
+        # Use the documented format regardless of the host operating system.
         settings: dict[str, Any] = {"baseURL": base_url.rstrip("/")}
         if api_key:
             settings["apiKey"] = api_key
-        self.data.setdefault(CURRENT, {})[provider_id] = {
-            "package": f"{AISDK}{OPENAI_COMPATIBLE}",
+        self.data.setdefault(LEGACY, {})[provider_id] = {
+            "npm": OPENAI_COMPATIBLE,
             "name": name or provider_id,
-            "settings": settings,
+            "options": settings,
             "models": {},
         }
 
