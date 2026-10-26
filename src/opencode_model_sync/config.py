@@ -127,6 +127,14 @@ class OpencodeConfig:
         else:
             entry.setdefault("capabilities", {})["tools"] = tools
 
+    def set_model_vision(self, provider_id: str, model_id: str, enabled: bool, *, overwrite: bool = True) -> bool:
+        entry = self._model(provider_id, model_id)
+        section = self._section(provider_id)
+        if not overwrite and not vision_unset(entry, section):
+            return False
+        _set_vision(entry, section, enabled)
+        return True
+
     def move_to_current_map(self, provider_id: str) -> bool:
         """Write a legacy provider into the ``providers`` map and drop its old entry; False if it was there.
 
@@ -227,7 +235,7 @@ class OpencodeConfig:
             Path(temp).unlink(missing_ok=True)
             raise
 
-    def model_entry(self, provider_id: str, name: str | None, context: int | None, tools: bool | None) -> dict:
+    def model_entry(self, provider_id: str, name: str | None, context: int | None, tools: bool | None, vision: bool | None = None) -> dict:
         """A model definition in the shape of the section that holds the provider."""
         section = self._section(provider_id)
         entry: dict[str, Any] = {}
@@ -238,6 +246,8 @@ class OpencodeConfig:
                 entry["tool_call"] = tools
             else:
                 entry["capabilities"] = {"tools": tools}
+        if vision is not None:
+            _set_vision(entry, section, vision)
         if context:
             # Legacy limits require both fields; half the window leaves room for the prompt.
             entry["limit"] = {"context": context, "output": min(32768, context // 2)}
@@ -270,6 +280,44 @@ class OpencodeConfig:
         if not isinstance(entry, dict):
             raise ConfigError(tr("error.missing", id=f"{provider_id}/{model_id}"))
         return entry
+
+
+def _vision_key(section: str) -> str:
+    return "modalities" if section == LEGACY else "capabilities"
+
+
+def configured_vision(entry: dict[str, Any], section: str) -> bool | None:
+    inputs = _as_object(entry.get(_vision_key(section))).get("input")
+    if isinstance(inputs, list) and all(isinstance(item, str) for item in inputs):
+        return "image" in inputs
+    return None
+
+
+def vision_unset(entry: dict[str, Any], section: str) -> bool:
+    """Automatic enrichment never overrides an explicit (even malformed) user choice."""
+    value = entry.get(_vision_key(section), {})
+    return isinstance(value, dict) and "input" not in value and _valid_modalities(value)
+
+
+def _valid_modalities(value: dict) -> bool:
+    return all(key not in value or isinstance(value[key], list) and
+               all(isinstance(item, str) for item in value[key]) for key in ("input", "output"))
+
+
+def _set_vision(entry: dict, section: str, enabled: bool) -> None:
+    key = _vision_key(section)
+    value = entry.get(key, {})
+    if not isinstance(value, dict) or not _valid_modalities(value):
+        raise ConfigError(tr("vision.invalidConfig"))
+    value = dict(value)
+    inputs = list(value.get("input", ["text"]))
+    if enabled and "image" not in inputs:
+        inputs.append("image")
+    elif not enabled:
+        inputs = [item for item in inputs if item != "image"]
+    value["input"] = inputs
+    value.setdefault("output", ["text"])
+    entry[key] = value
 
 
 def configured_tools(entry: dict[str, Any]) -> bool | None:

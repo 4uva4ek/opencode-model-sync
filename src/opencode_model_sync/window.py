@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import agents, catalog, discovery, i18n, icons, tasks, theme, workspaces
+from . import agents, catalog, discovery, i18n, icons, tasks, theme, workspaces, vision
 from .agents_view import AgentDialog, AgentsPanel, ModelList, TeamDialog
 from .config import ConfigError, OpencodeConfig, Provider, config_path
 from .discovery import Discovery, ModelRow, RemoteModel, Suggestion
@@ -169,6 +169,8 @@ class ModelRowWidget(QFrame):
     toggled = Signal()
     tools_toggled = Signal(str, bool)
     visibility_toggled = Signal(str, bool)
+    vision_toggled = Signal(str, bool)
+    vision_probe = Signal(str)
 
     def __init__(self, row: ModelRow, checked: bool, last: bool) -> None:
         super().__init__()
@@ -178,6 +180,7 @@ class ModelRowWidget(QFrame):
         self.setProperty("off", not row.visible)
         self.model_switch: QPushButton | None = None  # only a model in the config can be switched
         self.tools_switch: QPushButton | None = None
+        self.vision_switch: QPushButton | None = None
         self.check = QCheckBox()
         self.check.setCursor(Qt.CursorShape.PointingHandCursor)
         self.check.setChecked(checked)
@@ -214,6 +217,23 @@ class ModelRowWidget(QFrame):
             tools = pill(tr("row.tools") if row.tools else tr("row.noTools"), "muted" if row.tools else "warning")
             tools.setToolTip(tr("row.toolsHint") if row.tools else tr("row.noToolsHint"))
             layout.addWidget(tools)
+        hint = tr("vision.configured") if row.configured_vision is not None else tr(
+            "vision.detected" if row.vision is not None else "vision.unknownHint")
+        if row.in_config:
+            self.vision_switch = self._switch("vision.images" if row.vision is not None else "vision.unknown",
+                                             row.vision is True, hint)
+            self.vision_switch.clicked.connect(lambda value: self.vision_toggled.emit(row.id, value))
+            layout.addWidget(self.vision_switch)
+        else:
+            image_status = pill(tr("vision.images" if row.vision else "vision.noImages") if row.vision is not None
+                                else tr("vision.unknown"), "muted")
+            image_status.setToolTip(hint)
+            layout.addWidget(image_status)
+        self.probe_button = button(tr("vision.test"), "ghost")
+        self.probe_button.setToolTip(tr("vision.testHint"))
+        self.probe_button.setAccessibleName(tr("vision.testHint"))
+        self.probe_button.clicked.connect(lambda: self.vision_probe.emit(row.id))
+        layout.addWidget(self.probe_button)
         status = {
             "new": (tr("status.new"), "accent"),
             "configured": (tr("status.configured"), "success"),
@@ -518,9 +538,8 @@ class MainWindow(QMainWindow):
         result = self.results.get(provider_id)
         if not provider or not result or not result.ok:
             return
-        rows = discovery.diff(provider, result)
         chosen = self.checked.get(provider_id, set())
-        add = [row.remote for row in rows if row.status == "new" and row.remote and (not only_checked or row.id in chosen)]
+        add = [model for model in discovery.sync_candidates(provider, result) if not only_checked or model.id in chosen]
         if not add:
             self.show_banner(tr("banner.noNew", provider=provider.title), "accent")
             return
@@ -531,7 +550,7 @@ class MainWindow(QMainWindow):
         for provider in self.managed():
             result = self.results.get(provider.id)
             if result and result.ok:
-                add = [row.remote for row in discovery.diff(provider, result) if row.status == "new" and row.remote]
+                add = discovery.sync_candidates(provider, result)
                 if add:
                     plan.append((provider.id, add))
         if not plan:
@@ -575,6 +594,47 @@ class MainWindow(QMainWindow):
             config.save()
 
         self._run_write(work, tr("banner.toolsOn" if enabled else "banner.toolsOff", model=model_id))
+
+    def set_vision(self, provider_id: str, model_id: str, enabled: bool) -> None:
+        if self.busy:
+            return
+        def work() -> None:
+            config = OpencodeConfig.load(self.config_file)
+            config.set_model_vision(provider_id, model_id, enabled)
+            config.save()
+        self._run_write(work, tr("vision.enabled" if enabled else "vision.disabled", model=model_id))
+
+    def probe_vision(self, provider_id: str, model_id: str) -> None:
+        if self.busy:
+            return
+        provider = self.config.provider(provider_id)
+        if not provider:
+            return
+        answer = QMessageBox.question(self, tr("vision.testHint"), tr("vision.confirm", model=model_id),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        result = self.results.get(provider_id)
+        remote = next((model for model in result.models if model.id == model_id), None) if result else None
+        self.busy = True
+        self.render()
+        self.show_banner(tr("vision.testing", model=model_id), "accent")
+        self.banner_timer.stop()
+
+        def done(result: vision.ProbeResult) -> None:
+            self.busy = False
+            self._reload_config()
+            if result.supported is True:
+                self.show_banner(tr("vision.enabled", model=model_id), "success")
+            else:
+                self.show_banner(tr("vision.undetermined", reason=result.reason), "warning")
+
+        def failed(error: str) -> None:
+            self.busy = False
+            self.render()
+            self.show_banner(tr("vision.failed", error=error), "danger")
+
+        tasks.run(lambda: vision.probe_and_enable(self.config_file, provider_id, model_id, remote), done, failed)
 
     def set_visible(self, provider_id: str, model_id: str, enabled: bool) -> None:
         if self.busy:
@@ -1128,6 +1188,8 @@ class MainWindow(QMainWindow):
             widget = ModelRowWidget(row, row.id in chosen, index == len(rows) - 1)
             widget.setEnabled(not self.busy)
             widget.toggled.connect(lambda w=widget, pid=provider.id: self._toggle(pid, w))
+            widget.vision_toggled.connect(lambda model, value, pid=provider.id: self.set_vision(pid, model, value))
+            widget.vision_probe.connect(lambda model, pid=provider.id: self.probe_vision(pid, model))
             widget.tools_toggled.connect(lambda model, value, pid=provider.id: self.set_tools(pid, model, value))
             widget.visibility_toggled.connect(lambda model, value, pid=provider.id: self.set_visible(pid, model, value))
             column.addWidget(widget)
@@ -1147,7 +1209,8 @@ class MainWindow(QMainWindow):
         chosen = self.checked.get(provider.id, set())
         new = [row for row in rows if row.status == "new"]
         missing = [row for row in rows if row.status == "missing"]
-        picked_new = [row for row in new if row.id in chosen]
+        candidates = discovery.sync_candidates(provider, result) if result and result.ok else []
+        picked_new = [model for model in candidates if model.id in chosen]
         picked_config = [row for row in rows if row.in_config and row.id in chosen]
         configured = len([row for row in rows if row.in_config])
 
@@ -1161,7 +1224,7 @@ class MainWindow(QMainWindow):
             remove.setEnabled(bool(picked_config) and not self.busy)
             remove.clicked.connect(lambda: self.remove_selected(provider.id))
             footer.addWidget(remove)
-        if new:
+        if candidates:
             add = button(tr("footer.add", count=len(picked_new)), icon_name="plus")
             add.setEnabled(bool(picked_new) and not self.busy)
             add.clicked.connect(lambda: self.sync(provider.id, only_checked=True))

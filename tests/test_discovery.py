@@ -79,8 +79,8 @@ def test_ollama_uses_native_api_and_skips_embeddings(server):
     result = discover(f"{srv.url}/v1")
     assert result.ok and result.server == "ollama"
     assert result.models == [
-        RemoteModel(id="coder:30b", context=65536, tools=True),
-        RemoteModel(id="old:1b", context=8192, tools=False),
+        RemoteModel(id="coder:30b", context=65536, tools=True, vision=False),
+        RemoteModel(id="old:1b", context=8192, tools=False, vision=False),
     ]
 
 
@@ -116,7 +116,7 @@ def test_lmstudio_native_listing(server):
     )
     result = discover(f"{srv.url}/v1")
     assert result.server == "lmstudio"
-    assert result.models == [RemoteModel(id="qwen", context=32768, tools=True)]
+    assert result.models == [RemoteModel(id="qwen", context=32768, tools=True, vision=False)]
 
 
 def test_unreachable_server_reports_error():

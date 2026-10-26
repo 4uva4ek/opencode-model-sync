@@ -26,6 +26,21 @@ New providers use the documented `provider` map with `npm` and `options` on ever
 
 The **Settings** and **MCP** tabs can edit `.jsonc` while retaining comments and unchanged values. The existing provider sync and agent editing actions still refuse to rewrite files containing comments.
 
+## Image input
+
+The provider list shows **Images**, **No images**, or **Images ?** when capability information is unknown. Ollama's native `vision` capability, LM Studio's `vlm` type, and explicit input modalities/vision flags from compatible servers are recognized. Model names are not used to guess. Missing metadata (for example Strata's `iq3_s` listing) does not mean images are unsupported.
+
+**Sync** now also fills missing image capabilities on existing models. Explicit input modality lists, including text-only lists, always win over server metadata. Other modalities, tool support, limits, names and overrides are retained. Use the **Images** switch on a configured model to enable or disable image input manually.
+
+For a server without metadata, press **Test** beside the selected model. After confirmation, Companion sends up to two small randomized synthetic images to the OpenAI-compatible `/chat/completions` endpoint, outside the UI thread. This can load a model and incur generation costs; each request has a 60-second timeout. It sends no personal images and never runs generation during background discovery or Sync. HTTP 200 is insufficient: both responses must correctly identify the shapes, colors and positions. Errors, unsupported parameters and inconclusive answers leave support undetermined and the config unchanged. A successful test enables image input (and adds the model if it is new). Endpoint, model-ID and authentication overrides are respected; concurrent changes to the tested provider/model are detected before saving.
+
+The config keeps its existing format:
+
+- `provider` / `npm` / `options`: `models.<id>.modalities.input = ["text", "image"]`, `modalities.output = ["text"]`.
+- `providers` / `package` / `settings`: `models.<id>.capabilities.input = ["text", "image"]`, preserving the other capability fields.
+
+Existing input/output modalities are preserved; disabling images removes only `image` from input. Saves use the normal backup and atomic write. As with other provider edits, commented JSONC is refused rather than rewritten; a visual test is not started when its result cannot safely be saved. These formats follow the [OpenCode 1.x model schema](https://github.com/anomalyco/opencode/blob/v1.2.27/packages/opencode/src/provider/models.ts) and [current provider config schema](https://github.com/anomalyco/opencode/blob/dev/packages/schema/src/config/provider.ts).
+
 ## Settings and MCP
 
 Five independent tabs: Providers, Workspaces, Agents and teams, MCP, and Settings.

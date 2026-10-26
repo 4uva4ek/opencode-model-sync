@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
-from .config import OpencodeConfig, Provider, configured_visible, configured_tools
+from .config import OpencodeConfig, Provider, configured_visible, configured_tools, configured_vision, vision_unset
 
 # Embedding, speech, image and moderation models share the listing but cannot drive a chat session.
 NON_CHAT = re.compile(r"embed|whisper|tts|dall-e|moderation|transcribe|rerank|(^|[-/])image", re.IGNORECASE)
@@ -34,6 +34,7 @@ class RemoteModel:
     name: str | None = None
     context: int | None = None
     tools: bool | None = None
+    vision: bool | None = None
 
 
 @dataclass
@@ -52,6 +53,7 @@ class ModelRow:
     remote: RemoteModel | None = None
     configured_tools: bool | None = None
     configured_visible: bool = True
+    configured_vision: bool | None = None
 
     @property
     def in_config(self) -> bool:
@@ -68,6 +70,12 @@ class ModelRow:
         if self.configured_tools is not None:
             return self.configured_tools
         return self.remote.tools if self.remote else None
+
+    @property
+    def vision(self) -> bool | None:
+        if self.configured_vision is not None:
+            return self.configured_vision
+        return self.remote.vision if self.remote else None
 
 
 @dataclass
@@ -103,6 +111,7 @@ def diff(provider: Provider, discovery: Discovery) -> list[ModelRow]:
             status="configured" if model_id in remote or not discovery.ok else "missing",
             remote=remote.get(model_id),
             configured_tools=configured_tools(entry),
+            configured_vision=configured_vision(entry, provider.section),
             configured_visible=configured_visible(entry, provider.section),
         )
         for model_id, entry in provider.models.items()
@@ -119,10 +128,44 @@ def diff(provider: Provider, discovery: Discovery) -> list[ModelRow]:
 def apply(config: OpencodeConfig, provider_id: str, add: list[RemoteModel], remove: list[str]) -> None:
     config.add_models(
         provider_id,
-        {model.id: config.model_entry(provider_id, model.name, model.context, model.tools) for model in add},
+        {model.id: config.model_entry(provider_id, model.name, model.context, model.tools, model.vision) for model in add},
     )
+    for model in add:
+        if model.vision is not None:
+            config.set_model_vision(provider_id, model.id, model.vision, overwrite=False)
     config.remove_models(provider_id, remove)
     config.save()
+
+
+def sync_candidates(provider: Provider, result: Discovery) -> list[RemoteModel]:
+    return [model for model in result.models if model.id not in provider.models or
+            model.vision is not None and vision_unset(provider.models[model.id], provider.section)]
+
+
+def metadata_vision(item: dict) -> bool | None:
+    """Only explicit capability metadata is evidence; names and missing fields are not."""
+    capabilities = item.get("capabilities")
+    evidence: set[bool] = set()
+    sources = [item, capabilities] if isinstance(capabilities, dict) else [item]
+    for source in sources:
+        for key in ("vision", "supports_vision"):
+            if isinstance(source.get(key), bool):
+                evidence.add(source[key])
+    candidates = [item.get("input_modalities")]
+    for key, field in (("modalities", "input"), ("capabilities", "input"), ("architecture", "input_modalities")):
+        value = item.get(key)
+        if isinstance(value, dict):
+            candidates.append(value.get(field))
+    for value in candidates:
+        if isinstance(value, list) and value and all(isinstance(part, str) for part in value):
+            modalities = {part.lower() for part in value}
+            if "image" in modalities:
+                evidence.add(True)
+            elif modalities <= {"text", "audio", "video", "pdf"}:
+                evidence.add(False)
+    if isinstance(capabilities, list) and "vision" in capabilities:
+        evidence.add(True)
+    return next(iter(evidence)) if len(evidence) == 1 else None
 
 
 def scan_local(config: OpencodeConfig, timeout: float = 1.5) -> list[Suggestion]:
@@ -139,9 +182,10 @@ def scan_local(config: OpencodeConfig, timeout: float = 1.5) -> list[Suggestion]
 
 
 class _Client:
-    def __init__(self, api_key: str | None, timeout: float) -> None:
+    def __init__(self, api_key: str | None, timeout: float, *, headers: dict | None = None) -> None:
         self.api_key = api_key
         self.timeout = timeout
+        self.headers = headers or {}
 
     def get(self, url: str) -> Any:
         return self._send(urllib.request.Request(url, headers=self._headers()))
@@ -163,8 +207,8 @@ class _Client:
             return None
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/json", "User-Agent": "opencode-model-sync"}
-        if self.api_key:
+        headers = {"Accept": "application/json", "User-Agent": "opencode-model-sync", **self.headers}
+        if self.api_key and not any(key.lower() == "authorization" for key in headers):
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
@@ -199,6 +243,7 @@ def _ollama(client: _Client, root: str) -> list[RemoteModel] | None:
             id=name,
             context=contexts[0] if contexts else None,
             tools=("tools" in capabilities) if capabilities else None,
+            vision=("vision" in capabilities) if capabilities else None,
         )
 
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -214,6 +259,7 @@ def _lmstudio(client: _Client, root: str) -> list[RemoteModel] | None:
             id=str(item["id"]),
             context=item.get("max_context_length") if isinstance(item.get("max_context_length"), int) else None,
             tools="tool_use" in (item.get("capabilities") or []),
+            vision=True if item.get("type") == "vlm" else (metadata_vision(item) if metadata_vision(item) is not None else False),
         )
         for item in listing["data"]
         if isinstance(item, dict) and item.get("id") and item.get("type") in ("llm", "vlm")
@@ -236,6 +282,7 @@ def _openai(client: _Client, base: str) -> list[RemoteModel]:
                 id=str(item["id"]),
                 name=str(name) if name and name != item["id"] else None,
                 context=context if isinstance(context, int) else None,
+                vision=metadata_vision(item),
             )
         )
     return sorted(models, key=lambda model: model.id.lower())

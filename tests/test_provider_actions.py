@@ -159,3 +159,63 @@ def test_provider_menu_is_translated_and_disabled_during_save(view, language):
         assert not menu.parentWidget().isEnabled()
     finally:
         i18n.set_language(previous)
+
+
+def test_image_controls_expose_unknown_and_manual_choice(view):
+    widget, path = view
+    data = json.loads(path.read_text())
+    data['provider']['local']['models']['m'] = {'tool_call': False, 'limit': {'context': 123, 'output': 45}}
+    path.write_text(json.dumps(data))
+    widget._reload_config()
+    row = rows_of(widget)['m']
+    assert row.vision_switch.text() == i18n.tr('vision.unknown')
+    row.vision_switch.click()
+    saved = json.loads(path.read_text())['provider']['local']['models']['m']
+    assert saved['modalities'] == {'input': ['text', 'image'], 'output': ['text']}
+    assert saved['tool_call'] is False and saved['limit'] == {'context': 123, 'output': 45}
+    rows_of(widget)['m'].vision_switch.click()
+    assert json.loads(path.read_text())['provider']['local']['models']['m']['modalities']['input'] == ['text']
+    widget.busy = True
+    widget.render()
+    assert not rows_of(widget)['m'].probe_button.isEnabled()
+    assert not rows_of(widget)['m'].vision_switch.isEnabled()
+
+
+def test_image_probe_requires_confirmation_and_runs_as_a_task(view, monkeypatch):
+    widget, path = view
+    data = json.loads(path.read_text())
+    data['provider']['local']['models']['m'] = {}
+    path.write_text(json.dumps(data))
+    widget._reload_config()
+    calls = []
+    monkeypatch.setattr(widget, 'show_banner', lambda text, tone: calls.append((text, tone)))
+    monkeypatch.setattr(window.QMessageBox, 'question', lambda *a, **kw: QMessageBox.StandardButton.No)
+    monkeypatch.setattr(window.tasks, 'run', lambda *a: pytest.fail('no request without confirmation'))
+    rows_of(widget)['m'].probe_button.click()
+    assert not calls
+    monkeypatch.setattr(window.QMessageBox, 'question', lambda *a, **kw: QMessageBox.StandardButton.Yes)
+    queued = []
+    monkeypatch.setattr(window.tasks, 'run', lambda work, done, failed: queued.append((work, done, failed)))
+    monkeypatch.setattr(window.vision, 'probe', lambda *a, **kw: window.vision.ProbeResult(True))
+    before = path.read_text()
+    rows_of(widget)['m'].probe_button.click()
+    assert widget.busy and len(queued) == 1
+    assert path.read_text() == before  # The signal handler has not performed network or file work.
+    work, done, failed = queued[0]
+    done(work())
+    assert not widget.busy
+    assert json.loads(path.read_text())['provider']['local']['models']['m']['modalities']['input'] == ['text', 'image']
+    assert calls[-1][1] == 'success'
+
+
+def test_sync_button_enriches_existing_model(view):
+    widget, path = view
+    data = json.loads(path.read_text())
+    data['provider']['local']['models']['m'] = {'name': 'Custom name', 'tool_call': False}
+    path.write_text(json.dumps(data))
+    widget._reload_config()
+    widget.results['local'] = window.Discovery(True, models=[window.RemoteModel('m', vision=True)])
+    widget.sync('local')
+    saved = json.loads(path.read_text())['provider']['local']['models']['m']
+    assert saved == {'name': 'Custom name', 'tool_call': False,
+                     'modalities': {'input': ['text', 'image'], 'output': ['text']}}
