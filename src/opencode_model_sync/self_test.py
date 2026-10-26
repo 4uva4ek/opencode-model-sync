@@ -15,11 +15,11 @@ def run(report_path: str) -> int:
         # Keep Qt imports inside the try block so DLL errors produce a report
         # instead of an unhandled windowed-PyInstaller error dialog.
         from PySide6.QtCore import qVersion
-        from PySide6.QtGui import QGuiApplication
+        from PySide6.QtGui import QGuiApplication, QImage
         from PySide6.QtNetwork import QLocalServer
         from PySide6.QtSvg import QSvgRenderer
         from PySide6.QtWidgets import QApplication
-        from . import app as application, i18n, mcp_catalog, settings, window
+        from . import app as application, i18n, mcp_catalog, settings, window, vision
         from .mcp_catalog_view import CatalogDialog, SetupDialog
 
         app = QApplication([])
@@ -58,9 +58,10 @@ def run(report_path: str) -> int:
             socket = QLocalServer()
             svg = QSvgRenderer(b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>')
             assert svg.isValid()
+            assert not QImage.fromData(vision.challenge().png).isNull()
             result = {"status": "ok", "qt": qVersion(), "platform": QGuiApplication.platformName(),
                       "window": main.windowTitle(), "catalog_entries": len(browser.entries),
-                      "config_save": "ok"}
+                      "config_save": "ok", "vision_png": "ok"}
             browser.reject()
             main.close()
             del setup, browser, main, socket, svg

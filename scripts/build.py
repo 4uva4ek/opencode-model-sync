@@ -56,21 +56,21 @@ def validate_windows_qt(bundle: Path) -> None:
             raise RuntimeError(f"Incompatible ICU in {library}: missing {', '.join(x.decode() for x in sorted(missing))}")
 
 
-def smoke_windows(executable: Path, directory: Path) -> None:
-    """Exercise the frozen app and native Windows Qt plugin before shipping."""
-    report = directory / "windows-smoke.json"
+def smoke_app(executable: Path, directory: Path) -> None:
+    """Exercise the frozen app on every OS; Windows also uses its native Qt plugin."""
+    report = directory / f"{target()}-smoke.json"
     report.unlink(missing_ok=True)
     env = build_environment()
-    env["QT_QPA_PLATFORM"] = "windows"
+    env["QT_QPA_PLATFORM"] = "windows" if sys.platform == "win32" else "offscreen"
     # Developer Qt/Python overrides must not hide a missing packaged dependency.
     for name in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "PYTHONPATH", "PYTHONHOME"):
         env.pop(name, None)
     result = subprocess.run([str(executable), "--self-test", str(report)], env=env,
-                            timeout=45, creationflags=subprocess.CREATE_NO_WINDOW)
+                            timeout=45, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     data = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else {}
     if result.returncode or data.get("status") != "ok":
-        raise RuntimeError(f"Frozen Windows smoke test failed: {data or result.returncode}")
-    print(f"Windows executable verified: Qt {data['qt']}, platform {data['platform']}")
+        raise RuntimeError(f"Frozen application smoke test failed: {data or result.returncode}")
+    print(f"Executable verified: Qt {data['qt']}, platform {data['platform']}")
 
 
 def render_icon(path: Path) -> None:
@@ -158,7 +158,11 @@ def main() -> None:
 
     if sys.platform == "win32":
         validate_windows_qt(dist / NAME)
-        smoke_windows(dist / NAME / f"{NAME}.exe", ROOT / "build")
+        smoke_app(dist / NAME / f"{NAME}.exe", ROOT / "build")
+    elif sys.platform == "darwin":
+        smoke_app(dist / f"{NAME}.app" / "Contents" / "MacOS" / NAME, ROOT / "build")
+    else:
+        smoke_app(dist / NAME / NAME, ROOT / "build")
 
     archive_base = dist / f"{SLUG}-{target()}"
     if sys.platform == "darwin":
