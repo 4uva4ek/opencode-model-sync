@@ -9,6 +9,7 @@ opencode-companion-<os>-<arch>.(zip|tar.gz). Each OS has to build its own app.
 from __future__ import annotations
 
 import os
+import hashlib
 import json
 import platform
 import shutil
@@ -169,6 +170,12 @@ def main() -> None:
         archive = f"{archive_base}.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(dist / NAME, arcname=SLUG)
+    archive_path = Path(archive)
+    with archive_path.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    archive_path.with_name(archive_path.name + ".sha256").write_text(
+        f"{digest}  {archive_path.name}\n", encoding="ascii"
+    )
     print(f"built {archive}")
 
 

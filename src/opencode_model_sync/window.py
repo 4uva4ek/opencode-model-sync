@@ -1041,6 +1041,11 @@ class MainWindow(QMainWindow):
         self.show_archived = shown
         self.render_workspaces()
 
+    def show_updates(self) -> None:
+        from .updates_view import UpdateDialog
+        dialog = UpdateDialog(self)
+        dialog.exec()
+
     def _top_bar(self) -> QHBoxLayout:
         folder = button("", "ghost", "folder")
         folder.setToolTip(tr("top.openFolder"))
@@ -1057,6 +1062,9 @@ class MainWindow(QMainWindow):
         bar.setSpacing(8)
         bar.addWidget(folder)
         bar.addWidget(path, 1)
+        update = button(tr("update.title"))
+        update.clicked.connect(self.show_updates)
+        bar.addWidget(update)
         bar.addWidget(refresh)
         bar.addWidget(sync_all)
         return bar

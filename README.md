@@ -75,6 +75,12 @@ The **Workspaces** tab lists the folders opencode works in and the git worktrees
 
 While opencode runs, the list comes from it through `opencode api`; otherwise the same rows are read from `~/.local/share/opencode/opencode.db`. opencode's database is copied to `opencode.db.bak-model-sync-*` before anything is written to it. Which workspaces are excluded is this app's own file, `~/.config/opencode/model-sync-workspaces.json`.
 
+## Updates
+
+Open **Updates → Check for updates**. Companion checks the latest stable GitHub release for this OS and architecture. Choose **Download update**, then **Install and restart**. Downloads are verified against SHA-256 checksums; the app closes before its installation directory is replaced. The previous version is retained at the backup path shown in the dialog, and a failed directory replacement restores it. OpenCode configuration is outside the installation and is preserved.
+
+Automatic installation requires a packaged app in a writable location. On macOS, move the app to a writable Applications folder before updating. Windows replaces the entire application folder after exit; Linux updates the existing installation folder. Unsupported architectures, missing release assets, verification failures and network errors are reported without replacing the app. Source checkouts are updated through Git. Checking and installing are user-initiated; there are no silent background installations.
+
 ## Download
 
 Builds for every platform are attached to the [latest release](../../releases/latest). The builds are not signed:
