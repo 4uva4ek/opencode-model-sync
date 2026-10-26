@@ -15,7 +15,7 @@ import pytest
 from opencode_model_sync import updates
 
 
-def metadata(version="v0.4.3", name="opencode-companion-linux-x64.tar.gz", digest=None):
+def metadata(version="v0.5.0", name="opencode-companion-linux-x64.tar.gz", digest=None):
     return {"tag_name": version, "assets": [{"name": name, "digest": digest}, {"name": name + ".sha256"}]}
 
 
@@ -69,7 +69,7 @@ def test_download_uses_official_url_and_verifies_digest(tmp_path, monkeypatch):
     output = tmp_path / "archive"
     updates.download(release, output)
     assert output.read_bytes() == content
-    assert seen == [updates.RELEASES + "/download/v0.4.3/" + release.asset]
+    assert seen == [updates.RELEASES + "/download/v0.5.0/" + release.asset]
     output.unlink()
     monkeypatch.setattr(updates, "request", lambda url: io.BytesIO(b"corrupted"))
     with pytest.raises(ValueError, match="checksum mismatch"):
@@ -146,7 +146,7 @@ def test_installer_replaces_whole_directory_and_rolls_back(tmp_path, fail):
         executable.write_text("#!/bin/sh\nprintf ok > " + shlex.quote(str(marker)) + "\n")
         executable.chmod(0o755)
     plan = updates.Prepared(directory, staged, target, directory / "previous")
-    dead = subprocess.Popen(["/bin/true"])
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
     dead.wait()
     script = directory / "install.sh"
     script.write_text(updates.installer_script(plan, dead.pid, "linux"))

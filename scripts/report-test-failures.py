@@ -8,6 +8,6 @@ if report.exists():
         for kind in ("failure", "error"):
             failure = case.find(kind)
             if failure is not None:
-                message = f"{case.get('classname')}.{case.get('name')}\n{failure.text or failure.get('message', '')}"
+                message = f"{case.get('classname')}.{case.get('name')}\n{(failure.text or failure.get('message', ''))[-3500:]}"
                 message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                 print(f"::error::{message}")
