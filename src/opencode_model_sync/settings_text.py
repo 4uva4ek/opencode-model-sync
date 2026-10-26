@@ -2,7 +2,7 @@
 from .i18n import language
 
 UI = {
-    "title": ("Settings", "Настройки"), "mcp": ("MCP servers", "Серверы MCP"),
+    "title": ("OpenCode settings", "Настройки OpenCode"), "mcp": ("MCP servers", "Серверы MCP"),
     "mcpToggle": ("Enable or disable this server. Changes take effect after Save.", "Включить или выключить сервер. Изменения применяются после сохранения."),
     "timeouts": ("Connection timeouts", "Лимиты времени подключения"),
     "timeoutsHint": ("Expand or collapse global MCP timeouts. Each server can override them.", "Развернуть или свернуть общие тайм-ауты MCP. Каждый сервер может переопределить их."),

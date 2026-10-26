@@ -552,3 +552,90 @@ def test_an_archived_row_offers_the_way_out_rather_than_removal(view, monkeypatc
     assert not away.archived
     row = next(row for row in rows(widget) if row.item.name == "away")
     assert window.tr("ws.remove") in [child.text() for child in row.findChildren(QPushButton)]
+
+
+@pytest.fixture
+def v1_storage(tmp_path, monkeypatch):
+    """The project/session layout in OpenCode v1.2.27's official SQL definitions."""
+    database = tmp_path / "opencode.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript('''
+            create table project (id text primary key, worktree text not null,
+                time_created integer, time_updated integer, time_initialized integer,
+                sandboxes text not null);
+            create table session (id text primary key, project_id text, directory text);
+        ''')
+        connection.execute("insert into project values (?, ?, ?, ?, ?, ?)",
+            ("p1", "/Users/me/app", 10, 30, None,
+             json.dumps(["/Users/me/app", "/Users/me/.wt/feature", "/Users/me/.wt/feature"])))
+        connection.executemany("insert into session values (?, ?, ?)", [
+            ("s1", "p1", "/Users/me/app"), ("s2", "p1", "/Users/me/.wt/feature"),
+            ("s3", "p1", "/Users/me/.wt/feature")])
+    monkeypatch.setattr(workspaces, "database_path", lambda: database)
+    workspaces.reset_backup()
+    return database
+
+
+def test_v1_schema_lists_projects_sandboxes_and_session_counts_without_writes(v1_storage):
+    before = v1_storage.read_bytes()
+    items, note = workspaces.list_workspaces(None)
+    assert len(items) == 2
+    by_path = {item.directory: item for item in items}
+    project = by_path["/Users/me/app"]
+    tree = by_path["/Users/me/.wt/feature"]
+    assert project.kind == workspaces.PROJECT and project.sessions == 1
+    assert tree.kind == workspaces.WORKTREE and tree.sessions == 2
+    assert tree.project_dir == project.directory
+    assert tree.strategy == "git"
+    assert all(item.active == 30 and not item.archived and not item.can_remove for item in items)
+    assert note == workspaces.tr("workspaces.note.database")
+    assert v1_storage.read_bytes() == before
+    assert not list(v1_storage.parent.glob("*.bak-*"))
+
+
+@pytest.mark.parametrize("operation", [workspaces.remove, workspaces.unarchive, workspaces._forget_worktree])
+def test_unsupported_v1_writes_refuse_without_modifying_database(v1_storage, operation):
+    before = v1_storage.read_bytes()
+    # A stale/service row may lack capability information: check the real schema before writing.
+    item = workspaces.Workspace("p1", "/Users/me/app", workspaces.PROJECT)
+    with pytest.raises(workspaces.WorkspaceError, match=workspaces.tr("error.workspaceSchema")):
+        operation(item, None) if operation is workspaces.remove else operation(item)
+    assert v1_storage.read_bytes() == before
+    assert not list(v1_storage.parent.glob("*.bak-*"))
+
+
+def test_v1_rows_allow_excluding_but_disable_unsupported_removal(v1_storage, view):
+    widget, _, _ = view
+    widget.ws_items = workspaces.list_from_database(v1_storage)
+    widget.render_workspaces()
+    assert len(rows(widget)) == 2
+    for row in rows(widget):
+        buttons = {button.text(): button for button in row.findChildren(QPushButton)}
+        assert buttons[window.tr("ws.exclude")].isEnabled()
+        assert not buttons[window.tr("ws.remove")].isEnabled()
+        assert buttons[window.tr("ws.remove")].toolTip() == window.tr("error.workspaceSchema")
+
+
+@pytest.mark.parametrize("time_columns, values, expected", [
+    ("time_updated integer, time_created integer", (None, 12), 12),
+    ("time_created integer", (12,), 12),
+    ("", (), 0),
+])
+def test_missing_optional_timestamps_and_session_tables(tmp_path, time_columns, values, expected):
+    database = tmp_path / "opencode.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("create table project (id text, worktree text" + (", " + time_columns if time_columns else "") + ")")
+        params = ("p", "/app", *values)
+        connection.execute("insert into project values (" + ",".join("?" for _ in params) + ")", params)
+    item, = workspaces.list_from_database(database)
+    assert item.active == expected
+    assert item.sessions == 0
+    assert not item.archived
+
+
+def test_v2_session_table_takes_precedence_after_migration(v1_storage):
+    with sqlite3.connect(v1_storage) as connection:
+        connection.execute("create table session_v2 (project_id text, directory text)")
+        connection.execute("insert into session_v2 values ('p1', '/Users/me/app')")
+    project = next(item for item in workspaces.list_from_database(v1_storage) if item.kind == workspaces.PROJECT)
+    assert project.sessions == 1

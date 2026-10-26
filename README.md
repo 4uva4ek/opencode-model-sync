@@ -65,6 +65,8 @@ Adding creates a draft on the MCP page. Press **Save** to write it to `mcp.serve
 
 ## Workspaces
 
+Database reading supports both OpenCode 1.x (`session`, `project.sandboxes`) and newer schemas (`session_v2`, `worktree`). Missing activity timestamps fall back to project timestamps. Removal/archive controls are disabled when the database does not support them; **Exclude** remains available without changing OpenCode.
+
 The **Workspaces** tab lists the folders opencode works in and the git worktrees made from them, the same list opencode shows in its sidebar. Rows for folders that are no longer on the disk stay there for good, and opencode has no screen to clean them up.
 
 - **Exclude** hides a workspace in this app only. opencode is not touched and the folder stays where it is. "Show excluded" brings the hidden rows back; **Bring back** returns one of them.
@@ -77,7 +79,7 @@ While opencode runs, the list comes from it through `opencode api`; otherwise th
 
 ## Updates
 
-Open **Updates → Check for updates**. Companion checks the latest stable GitHub release for this OS and architecture. Choose **Download update**, then **Install and restart**. Downloads are verified against SHA-256 checksums; the app closes before its installation directory is replaced. The previous version is retained at the backup path shown in the dialog, and a failed directory replacement restores it. OpenCode configuration is outside the installation and is preserved.
+Click the **version number beside the language switch → Check for updates**. Companion checks the latest stable GitHub release for this OS and architecture. Choose **Download update**, then **Install and restart**. Downloads are verified against SHA-256 checksums; the app closes before its installation directory is replaced. The previous version is retained at the backup path shown in the dialog, and a failed directory replacement restores it. OpenCode configuration is outside the installation and is preserved.
 
 Automatic installation requires a packaged app in a writable location. On macOS, move the app to a writable Applications folder before updating. Windows replaces the entire application folder after exit; Linux updates the existing installation folder. Unsupported architectures, missing release assets, verification failures and network errors are reported without replacing the app. Source checkouts are updated through Git. Checking and installing are user-initiated; there are no silent background installations.
 

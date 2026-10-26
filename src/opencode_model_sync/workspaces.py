@@ -49,6 +49,7 @@ class Workspace:
     sessions: int = 0
     active: int = 0
     project_dir: str = ""
+    can_remove: bool = True
 
     @property
     def key(self) -> str:
@@ -192,47 +193,78 @@ def _connect(path: Path, readonly: bool = True) -> sqlite3.Connection:
     return connection
 
 
+def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
+    # Table names are internal constants, never values from a database row or user input.
+    return {row["name"] for row in connection.execute(f'pragma table_info("{table}")')}
+
+
 def _usage(connection: sqlite3.Connection) -> tuple[dict[str, int], dict[str, int]]:
-    """Session counts per project and per folder; a database without sessions is not an error."""
-    try:
+    """Read either session schema, preferring v2 when both exist after migration."""
+    for table in ("session_v2", "session"):
+        if not {"project_id", "directory"} <= _columns(connection, table):
+            continue
         by_project = {row["project_id"]: row["total"] for row in connection.execute(
-            "select project_id, count(*) as total from session_v2 group by project_id"
+            f"select project_id, count(*) as total from {table} group by project_id"
         )}
         by_directory = {normalize(row["directory"]): row["total"] for row in connection.execute(
-            "select directory, count(*) as total from session_v2 group by directory"
-        )}
-    except sqlite3.Error:
-        return {}, {}
-    return by_project, by_directory
+            f"select directory, count(*) as total from {table} group by directory"
+        ) if row["directory"]}
+        return by_project, by_directory
+    return {}, {}
 
 
 def _rows(connection: sqlite3.Connection) -> list[Workspace]:
     by_project, by_directory = _usage(connection)
+    columns = _columns(connection, "project")
+    times = [name for name in ("time_active", "time_updated", "time_created") if name in columns]
+    active = "coalesce(" + ", ".join([*times, "0"]) + ")" if times else "0"
+    archived = "time_archived" if "time_archived" in columns else "null"
+    sandboxes = "sandboxes" if "sandboxes" in columns else "'[]'"
+    can_archive = {"time_archived", "time_updated"} <= columns
     found: dict[str, Workspace] = {}
-    for row in connection.execute("select id, worktree, time_active, time_archived from project"):
+    sandbox_rows: list[tuple[str, str]] = []
+    for row in connection.execute(
+        f"select id, worktree, {active} as active, {archived} as archived, {sandboxes} as sandboxes from project"
+    ):
         directory = str(row["worktree"])
         found[normalize(directory)] = Workspace(
             project_id=str(row["id"]),
             directory=directory,
             kind=PROJECT,
-            archived=row["time_archived"] is not None,
+            archived=row["archived"] is not None,
             sessions=by_directory.get(normalize(directory), by_project.get(str(row["id"]), 0)),
-            active=int(row["time_active"] or 0),
+            active=int(row["active"]),
+            can_remove=can_archive,
         )
+        try:
+            paths = json.loads(row["sandboxes"] or "[]")
+        except (ValueError, TypeError):
+            paths = []
+        if isinstance(paths, list):
+            sandbox_rows.extend((str(row["id"]), path) for path in paths if isinstance(path, str) and path)
     by_id = {item.project_id: item for item in found.values()}
-    for row in connection.execute("select project_id, directory, strategy from worktree"):
-        key = normalize(str(row["directory"]))
-        if key in found:  # The project's own folder is a worktree row too; it is already listed.
+    worktree_columns = _columns(connection, "worktree")
+    if worktree_columns:
+        strategy = "strategy" if "strategy" in worktree_columns else "null"
+        rows = connection.execute(f"select project_id, directory, {strategy} as strategy from worktree")
+        trees = [(str(row["project_id"]), str(row["directory"]), row["strategy"], True) for row in rows]
+    else:
+        # OpenCode 1.x keeps worktree paths in project.sandboxes, without a worktree table.
+        trees = [(ident, directory, "git", False) for ident, directory in sandbox_rows]
+    for ident, directory, strategy, can_remove in trees:
+        key = normalize(directory)
+        if key in found:
             continue
-        project = by_id.get(str(row["project_id"]))
+        project = by_id.get(ident)
         found[key] = Workspace(
-            project_id=str(row["project_id"]),
-            directory=str(row["directory"]),
+            project_id=ident,
+            directory=directory,
             kind=WORKTREE,
-            strategy=row["strategy"],
+            strategy=strategy,
             sessions=by_directory.get(key, 0),
             active=project.active if project else 0,
             project_dir=project.directory if project else "",
+            can_remove=can_remove,
         )
     return sorted(found.values(), key=lambda item: (-item.active, item.name.lower()))
 
@@ -325,6 +357,8 @@ def add(cli: Path | None, directory: str) -> Workspace:
 
 def remove(workspace: Workspace, cli: Path | None, force: bool = False) -> str:
     """Drop a workspace the way opencode does, and say which way that turned out to be."""
+    if not workspace.can_remove:
+        raise WorkspaceError(tr("error.workspaceSchema"))
     if workspace.kind == WORKTREE:
         refused: WorkspaceError | None = None
         if cli:
@@ -353,7 +387,7 @@ def remove(workspace: Workspace, cli: Path | None, force: bool = False) -> str:
 
 def unarchive(workspace: Workspace) -> None:
     """Put a workspace back on the list of opencode: the archive mark is the only thing hiding it."""
-    database = _writable()
+    database = _writable("project", {"id", "time_archived", "time_updated"})
     try:
         database.execute(
             "update project set time_archived = null, time_updated = ? where id = ? and time_archived is not null",
@@ -371,7 +405,7 @@ def _forget_worktree(workspace: Workspace) -> bool:
     database with forward slashes, so the row is looked for by its normalised form and deleted
     under the spelling it is actually stored with.
     """
-    database = _writable()
+    database = _writable("worktree", {"project_id", "directory"})
     forgotten = False
     try:
         wanted = normalize(workspace.directory)
@@ -393,7 +427,7 @@ def _forget_worktree(workspace: Workspace) -> bool:
 
 def _archive_project(workspace: Workspace) -> None:
     """Mark the project as archived, which is how opencode takes it off its own list."""
-    database = _writable()
+    database = _writable("project", {"id", "time_archived", "time_updated"})
     try:
         database.execute(
             "update project set time_archived = ?, time_updated = ? where id = ? and time_archived is null",
@@ -410,10 +444,16 @@ def _now() -> int:
     return int(datetime.now().timestamp() * 1000)
 
 
-def _writable() -> sqlite3.Connection:
+def _writable(table: str, required: set[str]) -> sqlite3.Connection:
     database = database_path()
     if not database:
         raise WorkspaceError(tr("error.noDatabase"))
+    connection = _connect(database, readonly=True)
+    try:
+        if not required <= _columns(connection, table):
+            raise WorkspaceError(tr("error.workspaceSchema"))
+    finally:
+        connection.close()
     _backup(database)
     return _connect(database, readonly=False)
 

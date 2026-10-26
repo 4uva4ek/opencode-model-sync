@@ -85,14 +85,14 @@ class WorkspaceRow(QFrame):
         if item.archived:
             # opencode already took it off its own list: the way out of an archive is to leave it.
             out = button(tr("ws.unarchive"), "ghost")
-            out.setToolTip(tr("ws.unarchiveHint"))
-            out.setEnabled(not busy)
+            out.setToolTip(tr("ws.unarchiveHint") if item.can_remove else tr("error.workspaceSchema"))
+            out.setEnabled(not busy and item.can_remove)
             out.clicked.connect(lambda: self.unarchive.emit(item))
             layout.addWidget(out)
         else:
             drop = button(tr("ws.remove"), "ghost", "trash", palette.danger)
-            drop.setToolTip(tr("ws.removeHint"))
-            drop.setEnabled(not busy)
+            drop.setToolTip(tr("ws.removeHint") if item.can_remove else tr("error.workspaceSchema"))
+            drop.setEnabled(not busy and item.can_remove)
             drop.clicked.connect(lambda: self.remove.emit(item))
             layout.addWidget(drop)
 

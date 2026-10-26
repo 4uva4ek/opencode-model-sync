@@ -10,6 +10,7 @@ LANGUAGES = {"en": "English", "ru": "Русский"}
 
 _TEXT: dict[str, dict[str, str]] = {
     "en": {
+        "error.workspaceSchema": "This OpenCode database version does not support this operation. Use Exclude to hide the workspace in Companion.",
         "update.title": 'Updates',
         "update.current": 'Installed version: {version}',
         "update.hint": 'Check for a newer release on GitHub. Installation preserves your OpenCode configuration.',
@@ -310,6 +311,7 @@ _TEXT: dict[str, dict[str, str]] = {
         "row.hiddenHint": "Hidden from the OpenCode model catalog; settings are preserved. Click to show.",
     },
     "ru": {
+        "error.workspaceSchema": "Эта версия базы OpenCode не поддерживает операцию. Используйте «Исключить», чтобы скрыть рабочее пространство в Companion.",
         "update.title": 'Обновления',
         "update.current": 'Установленная версия: {version}',
         "update.hint": 'Проверить новую версию на GitHub. Установка сохраняет конфигурацию OpenCode.',

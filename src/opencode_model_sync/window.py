@@ -40,6 +40,7 @@ from .widgets import ElidedLabel, button, label, pill, repolish, scrolled, token
 from .workspaces_view import WorkspacesPanel
 from .settings_view import SettingsPanel
 from .settings_text import t as settings_text
+from .version import VERSION
 
 # opencode wants to be told twice before it drops a worktree that holds changes.
 FORCE_NEEDED = "force"
@@ -902,6 +903,9 @@ class MainWindow(QMainWindow):
         row.setSpacing(8)
         row.addWidget(self.tabs)
         row.addStretch(1)
+        self.version_button = button(f"v{VERSION}", "ghost")
+        self.version_button.clicked.connect(self.show_updates)
+        row.addWidget(self.version_button)
         row.addWidget(self.language_button)
         return strip
 
@@ -932,6 +936,8 @@ class MainWindow(QMainWindow):
         self.render()
 
     def render(self) -> None:
+        self.version_button.setToolTip(tr("update.check"))
+        self.version_button.setAccessibleName(tr("update.check"))
         self.tabs.setTabText(0, tr("tab.providers"))
         self.tabs.setTabText(1, tr("tab.workspaces"))
         self.tabs.setTabText(2, tr("nav.agents"))
@@ -1062,9 +1068,6 @@ class MainWindow(QMainWindow):
         bar.setSpacing(8)
         bar.addWidget(folder)
         bar.addWidget(path, 1)
-        update = button(tr("update.title"))
-        update.clicked.connect(self.show_updates)
-        bar.addWidget(update)
         bar.addWidget(refresh)
         bar.addWidget(sync_all)
         return bar
